@@ -34,7 +34,7 @@ optdepends=(
 )
 options=('!strip')          # .NET 程序 strip 后会损坏调试信息与部分元数据
 source=("$pkgname-$pkgver.tar.gz::https://github.com/lubuoren/vk-sagittarius/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('a928e511ad7c3f8c0be729ab6c20ab6a6b67c6dcb478ae0a98845a2f71694382')
+sha256sums=('b4819e6d8ca1dff86b5a50c74fa4239755464aaac9c5d013fb6ee8ef21a933f6')
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"

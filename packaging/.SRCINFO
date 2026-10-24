@@ -22,6 +22,6 @@ pkgbase = vk-sagittarius
 	optdepends = pulseaudio: parec 提供音频电平（声显频谱灯效）
 	optdepends = pipewire: pw-cat 提供音频电平（声显频谱灯效）
 	source = vk-sagittarius-1.0.0.tar.gz::https://github.com/lubuoren/vk-sagittarius/archive/refs/tags/v1.0.0.tar.gz
-	sha256sums = a928e511ad7c3f8c0be729ab6c20ab6a6b67c6dcb478ae0a98845a2f71694382
+	sha256sums = b4819e6d8ca1dff86b5a50c74fa4239755464aaac9c5d013fb6ee8ef21a933f6
 
 pkgname = vk-sagittarius
