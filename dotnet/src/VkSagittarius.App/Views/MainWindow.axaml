@@ -1,0 +1,285 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="VkSagittarius.App.Views.MainWindow"
+        Title="VK 射手座控制中心 · Linux"
+        Width="1200" Height="840"
+        MinWidth="980" MinHeight="640"
+        Background="#0E0E12"
+        FontFamily="Inter, Noto Sans CJK SC, Microsoft YaHei, sans-serif">
+
+  <Grid RowDefinitions="72,*,158" Margin="18,14,18,14">
+
+    <!-- 顶栏 -->
+    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+      <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14">
+        <Border Background="#C8323C" CornerRadius="8" Width="42" Height="42">
+          <TextBlock Text="VK" Foreground="White" FontWeight="Bold" FontSize="16"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="射手座控制中心" Classes="title" />
+          <TextBlock Text="VAIKYRIE · .NET 10 + Avalonia 移植版" Classes="dim" />
+        </StackPanel>
+      </StackPanel>
+
+      <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
+        <TextBlock Text="{Binding ModeBanner}" Classes="dim" HorizontalAlignment="Center" />
+        <TextBlock Text="{Binding AudioBanner}" Classes="dim" HorizontalAlignment="Center" />
+      </StackPanel>
+
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button Content="{Binding MonitorButtonText}" Classes="ghost" Command="{Binding ToggleMonitorCommand}" />
+        <Button Content="刷新遥测" Classes="ghost" Command="{Binding RefreshCommand}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- 主体 -->
+    <Grid Grid.Row="1" ColumnDefinitions="296,*" Margin="0,10,0,10">
+
+      <!-- 左：设备与遥测 -->
+      <ScrollViewer Grid.Column="0" Margin="0,0,12,0" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="10">
+
+          <TextBlock Text="设备" Classes="label" />
+          <ItemsControl ItemsSource="{Binding Devices}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border Classes="card" Margin="0,0,0,8">
+                  <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Ellipse Width="8" Height="8" Fill="{Binding Accent}" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="#EDEDF3" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding Subtitle}" Classes="dim" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock Text="实时遥测" Classes="label" Margin="0,8,0,0" />
+          <Border Classes="card">
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto">
+              <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
+                <TextBlock Text="CPU 温度" Classes="label" />
+                <TextBlock Text="{Binding CpuTemp}" Classes="metric" />
+              </StackPanel>
+              <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,12">
+                <TextBlock Text="GPU 温度" Classes="label" />
+                <TextBlock Text="{Binding GpuTemp}" Classes="metric" />
+              </StackPanel>
+              <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,12">
+                <TextBlock Text="CPU 占用" Classes="label" />
+                <TextBlock Text="{Binding CpuUsage}" FontSize="18" Foreground="#E8E8EE" />
+              </StackPanel>
+              <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,12">
+                <TextBlock Text="内存占用" Classes="label" />
+                <TextBlock Text="{Binding MemUsage}" FontSize="18" Foreground="#E8E8EE" />
+              </StackPanel>
+              <StackPanel Grid.Row="2" Grid.Column="0">
+                <TextBlock Text="CPU 频率" Classes="label" />
+                <TextBlock Text="{Binding CpuFreq}" FontSize="14" Foreground="#CFCFDA" />
+              </StackPanel>
+              <StackPanel Grid.Row="2" Grid.Column="1">
+                <TextBlock Text="风扇转速" Classes="label" />
+                <TextBlock Text="{Binding FanRpm}" FontSize="14" Foreground="#CFCFDA" />
+              </StackPanel>
+            </Grid>
+          </Border>
+
+          <Border Classes="card" MinHeight="96">
+            <StackPanel Spacing="4">
+              <TextBlock Text="设备回读状态" Classes="label" />
+              <TextBlock Text="{Binding LedStateText}" Classes="dim" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- 右：功能页 -->
+      <Border Grid.Column="1" Classes="card" Padding="16">
+        <TabControl x:Name="Tabs">
+
+          <!-- 灯效 -->
+          <TabItem Header="灯效">
+            <Grid ColumnDefinitions="270,*" Margin="0,12,0,0">
+              <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,10,0">
+                <TextBlock Text="灯效模式" Classes="label" />
+                <ListBox ItemsSource="{Binding LedModes}"
+                         SelectedItem="{Binding SelectedLedMode, Mode=TwoWay}"
+                         Background="Transparent" MaxHeight="330" />
+              </StackPanel>
+
+              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="12" Margin="14,0,6,0">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="通道" Classes="label" />
+                    <ComboBox ItemsSource="{Binding LedChannels}"
+                              SelectedItem="{Binding SelectedLedChannel, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="亮度" Classes="label" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding BrightnessText}" Classes="dim" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Slider Minimum="0" Maximum="100" Value="{Binding Brightness, Mode=TwoWay}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="速度" Classes="label" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding SpeedText}" Classes="dim" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Slider Minimum="0" Maximum="100" Value="{Binding Speed, Mode=TwoWay}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <TextBlock Text="颜色" Classes="label" VerticalAlignment="Center" />
+                      <Border Width="28" Height="18" CornerRadius="4" Background="{Binding ColorBrush}" />
+                      <TextBlock Text="{Binding ColorHex}" Classes="dim" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Grid ColumnDefinitions="20,*" RowDefinitions="Auto,Auto,Auto">
+                      <TextBlock Grid.Row="0" Grid.Column="0" Text="R" Classes="label" VerticalAlignment="Center" />
+                      <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding R, Mode=TwoWay}" />
+                      <TextBlock Grid.Row="1" Grid.Column="0" Text="G" Classes="label" VerticalAlignment="Center" />
+                      <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding G, Mode=TwoWay}" />
+                      <TextBlock Grid.Row="2" Grid.Column="0" Text="B" Classes="label" VerticalAlignment="Center" />
+                      <Slider Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding B, Mode=TwoWay}" />
+                    </Grid>
+                  </StackPanel>
+
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                      <Button Content="●" Padding="5,2" Background="#FF0000" Foreground="#FF0000" Command="{Binding PresetColorCommand}" CommandParameter="255,0,0" />
+                      <Button Content="●" Padding="5,2" Background="#FF7F00" Foreground="#FF7F00" Command="{Binding PresetColorCommand}" CommandParameter="255,127,0" />
+                      <Button Content="●" Padding="5,2" Background="#FFFF00" Foreground="#FFFF00" Command="{Binding PresetColorCommand}" CommandParameter="255,255,0" />
+                      <Button Content="●" Padding="5,2" Background="#7FFF00" Foreground="#7FFF00" Command="{Binding PresetColorCommand}" CommandParameter="127,255,0" />
+                      <Button Content="●" Padding="5,2" Background="#00FFFF" Foreground="#00FFFF" Command="{Binding PresetColorCommand}" CommandParameter="0,255,255" />
+                      <Button Content="●" Padding="5,2" Background="#007FFF" Foreground="#007FFF" Command="{Binding PresetColorCommand}" CommandParameter="0,127,255" />
+                      <Button Content="●" Padding="5,2" Background="#FF00FF" Foreground="#FF00FF" Command="{Binding PresetColorCommand}" CommandParameter="255,0,255" />
+                      <Button Content="●" Padding="5,2" Background="#FFFFFF" Foreground="#FFFFFF" Command="{Binding PresetColorCommand}" CommandParameter="255,255,255" />
+                    </StackPanel>
+                    <Button Content="应用灯效" Classes="accent" Command="{Binding ApplyLedCommand}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </StackPanel>
+              </ScrollViewer>
+            </Grid>
+          </TabItem>
+
+          <!-- 风扇 -->
+          <TabItem Header="风扇">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <Grid ColumnDefinitions="*,*" Margin="0,12,0,0">
+                <StackPanel Grid.Column="0" Spacing="12" Margin="0,0,20,0">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="风扇通道" Classes="label" />
+                    <ComboBox ItemsSource="{Binding FanChannels}"
+                              SelectedItem="{Binding SelectedFanChannel, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch" />
+                  </StackPanel>
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="曲线模式" Classes="label" />
+                    <ComboBox ItemsSource="{Binding FanModes}"
+                              SelectedItem="{Binding SelectedFanMode, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch" />
+                  </StackPanel>
+
+                  <Border Background="#121218" CornerRadius="8" Padding="12">
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="预设曲线（PWM 4 点 / 温度 3 点）" Classes="label" />
+                      <TextBlock Text="静音  0/0/65/100  ·  30/70/75" Classes="dim" />
+                      <TextBlock Text="标准  20/20/60/100  ·  40/60/75" Classes="dim" />
+                      <TextBlock Text="性能  30/30/99/100  ·  25/70/75" Classes="dim" />
+                      <TextBlock Text="全速  97/98/99/100  ·  30/70/75" Classes="dim" />
+                    </StackPanel>
+                  </Border>
+                  <Button Content="应用风扇曲线" Classes="accent" Command="{Binding ApplyFanCommand}" HorizontalAlignment="Left" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="10">
+                  <TextBlock Text="自定义曲线（模式 5）" Classes="label" />
+                  <Grid ColumnDefinitions="72,110,76,110" RowDefinitions="Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="PWM1 %" Classes="dim" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding Pwm1, Mode=TwoWay}" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="温度1 ℃" Classes="dim" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding Temp1, Mode=TwoWay}" Minimum="0" Maximum="120" Increment="1" FormatString="0" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="PWM2 %" Classes="dim" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding Pwm2, Mode=TwoWay}" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="温度2 ℃" Classes="dim" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding Temp2, Mode=TwoWay}" Minimum="0" Maximum="120" Increment="1" FormatString="0" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="PWM3 %" Classes="dim" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding Pwm3, Mode=TwoWay}" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="温度3 ℃" Classes="dim" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <NumericUpDown Grid.Row="2" Grid.Column="3" Value="{Binding Temp3, Mode=TwoWay}" Minimum="0" Maximum="120" Increment="1" FormatString="0" />
+                  </Grid>
+                  <TextBlock Text="注意——自定义模式字节序与预设不同：0, 温度1..3, PWM1..3。已按原程序处理。"
+                             Classes="dim" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </ScrollViewer>
+          </TabItem>
+
+          <!-- LCD -->
+          <TabItem Header="LCD 屏幕">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Margin="0,14,0,0" Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="18">
+                  <CheckBox Content="显示时间" IsChecked="{Binding ClockEnabled, Mode=TwoWay}" />
+                  <CheckBox Content="24 小时制" IsChecked="{Binding Hour24, Mode=TwoWay}" />
+                  <Button Content="应用时间" Classes="ghost" Command="{Binding ClockCommand}" />
+                </StackPanel>
+
+                <StackPanel Spacing="6">
+                  <TextBlock Text="屏幕方向" Classes="label" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="0°" Classes="ghost" Command="{Binding RotateCommand}" CommandParameter="0" />
+                    <Button Content="90°" Classes="ghost" Command="{Binding RotateCommand}" CommandParameter="90" />
+                    <Button Content="180°" Classes="ghost" Command="{Binding RotateCommand}" CommandParameter="180" />
+                    <Button Content="270°" Classes="ghost" Command="{Binding RotateCommand}" CommandParameter="270" />
+                  </StackPanel>
+                </StackPanel>
+
+                <StackPanel Spacing="6">
+                  <TextBlock Text="整屏测试" Classes="label" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="白屏" Classes="ghost" Command="{Binding ScreenCommand}" CommandParameter="white" />
+                    <Button Content="黑屏" Classes="ghost" Command="{Binding ScreenCommand}" CommandParameter="black" />
+                  </StackPanel>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                  <TextBlock Text="背景图 / 视频" Classes="label" />
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="UploadButton" Content="选择并上传…" Classes="accent" />
+                    <TextBlock Text="png / bmp / jpg / gif / mp4 / mov / avi"
+                               Classes="dim" VerticalAlignment="Center" />
+                  </StackPanel>
+                  <TextBlock Text="流程：发文件名 → 设备切成 U 盘 → 等新块设备 → udisksctl 挂载 → 拷贝 → 卸载 → 发应用指令。"
+                             Classes="dim" TextWrapping="Wrap" MaxWidth="620" HorizontalAlignment="Left" />
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+        </TabControl>
+      </Border>
+    </Grid>
+
+    <!-- 日志 -->
+    <Border Grid.Row="2" Classes="card" Padding="12">
+      <Grid RowDefinitions="Auto,*">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
+          <TextBlock Text="帧 / 事件日志" Classes="label" VerticalAlignment="Center" />
+          <Button Content="清空" Classes="ghost" Padding="8,3" Command="{Binding ClearLogCommand}" />
+        </StackPanel>
+        <ListBox Grid.Row="1" ItemsSource="{Binding FrameLog}" Background="Transparent"
+                 FontFamily="JetBrains Mono, DejaVu Sans Mono, monospace" FontSize="11.5" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

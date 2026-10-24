@@ -1,0 +1,13 @@
+[Unit]
+Description=VK 射手座控制中心（只跑心跳，不开窗口）
+After=graphical-session.target sound.target
+
+[Service]
+Type=simple
+# 用 --self-test 之外的常驻模式：界面进程最小化运行，保持 LCD / 灯效心跳
+ExecStart=/opt/vk-sagittarius/VkSagittarius.App --headless
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

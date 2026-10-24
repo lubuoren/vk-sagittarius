@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=VK 射手座控制中心
+Name[en]=VK Sagittarius Control Center
+Comment=LCD / ARGB / 风扇控制（.NET 10 + Avalonia 移植版）
+Exec=/opt/vk-sagittarius/VkSagittarius.App
+Icon=/opt/vk-sagittarius/icon.png
+Terminal=false
+Categories=System;Settings;HardwareSettings;
+Keywords=vk;vaikyrie;rgb;fan;lcd;
+StartupWMClass=VkSagittarius.App

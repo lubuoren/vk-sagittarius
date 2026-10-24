@@ -1,0 +1,18 @@
+# 第三方原始程序与解包结果（版权归厂商，不入库）
+app/
+src.zip
+
+# 构建产物
+dotnet/dist/
+dotnet/dist-sc/
+dotnet/**/bin/
+dotnet/**/obj/
+*.user
+
+# 交付压缩包
+*.tar.gz
+*.pkg.tar.zst
+
+# Python 缓存
+__pycache__/
+*.pyc
