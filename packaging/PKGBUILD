@@ -75,7 +75,8 @@ package() {
 
   install -d "$pkgdir/opt/$pkgname"
   cp -a "$srcdir/out/." "$pkgdir/opt/$pkgname/"
-  chmod +x "$pkgdir/opt/$pkgname/VkSagittarius.App" "$pkgdir/opt/$pkgname/vksagd"
+  chmod +x "$pkgdir/opt/$pkgname/VkSagittarius.App" "$pkgdir/opt/$pkgname/VkSagittarius.Daemon"
+  ln -sf "VkSagittarius.Daemon" "$pkgdir/opt/$pkgname/vksagd"
 
   install -d "$pkgdir/usr/bin"
   ln -s "/opt/$pkgname/VkSagittarius.App" "$pkgdir/usr/bin/$pkgname"
