@@ -1,6 +1,6 @@
 pkgbase = vk-sagittarius
 	pkgdesc = VK 射手座控制中心：LCD 屏遥测、ARGB 灯效与四路风扇控制（.NET 10 + Avalonia 移植版）
-	pkgver = 1.0.1
+	pkgver = 1.0.2
 	pkgrel = 1
 	url = https://github.com/zoot/vk-sagittarius
 	arch = x86_64
@@ -21,7 +21,7 @@ pkgbase = vk-sagittarius
 	optdepends = udisks2: LCD 换背景时自动挂载设备切出的 U 盘
 	optdepends = pulseaudio: parec 提供音频电平（声显频谱灯效）
 	optdepends = pipewire: pw-cat 提供音频电平（声显频谱灯效）
-	source = vk-sagittarius-1.0.1.tar.gz::https://github.com/lubuoren/vk-sagittarius/archive/refs/tags/v1.0.1.tar.gz
-	sha256sums = c6feb69dbd53ccaec2df37d494951965adc3cb20c23e08daa72b18d8744816b1
+	source = vk-sagittarius-1.0.2.tar.gz::https://github.com/lubuoren/vk-sagittarius/archive/refs/tags/v1.0.2.tar.gz
+	sha256sums = 31358c133b1382edcb9c0e2f594ae8d60632ca1e53890713dcbdd9b486af7ef2
 
 pkgname = vk-sagittarius

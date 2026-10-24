@@ -6,7 +6,7 @@
 #   * 运行时按需：udisks2（LCD 换背景要挂载 U 盘）、parec/pw-cat（音频电平灯效）。
 
 pkgname=vk-sagittarius
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="VK 射手座控制中心：LCD 屏遥测、ARGB 灯效与四路风扇控制（.NET 10 + Avalonia 移植版）"
 arch=('x86_64')
@@ -34,7 +34,7 @@ optdepends=(
 )
 options=('!strip')          # .NET 程序 strip 后会损坏调试信息与部分元数据
 source=("$pkgname-$pkgver.tar.gz::https://github.com/lubuoren/vk-sagittarius/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('c6feb69dbd53ccaec2df37d494951965adc3cb20c23e08daa72b18d8744816b1')
+sha256sums=('31358c133b1382edcb9c0e2f594ae8d60632ca1e53890713dcbdd9b486af7ef2')
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
