@@ -23,15 +23,32 @@ screenshots/                 界面截图
 packaging/                   udev 规则、desktop 入口、安装脚本
 ```
 
+## 架构：前后端分离
+
+```
+vksagd（systemd --user 常驻）           GUI（vk-sagittarius）
+ ├─ 独占 /dev/hidraw*，跑 10Hz/1Hz 心跳   ├─ 只连 Unix socket，发命令、收状态
+ ├─ 读 hwmon / nvidia-smi 遥测            ├─ 托盘常驻，关窗不退出
+ ├─ 上传背景（切 U 盘 + 挂载）            └─ 心跳暂停/恢复、缩放、配置
+ └─ 广播状态（1Hz）与日志
+        ▲                                        │
+        └──── $XDG_RUNTIME_DIR/vk-sagittarius/daemon.sock（一行一条 JSON）
+```
+
+关掉 GUI 不影响设备继续收心跳；重启 GUI 秒连，状态由后台推回来。
+协议：请求 `{"id":1,"op":"led","led":{...}}`，应答 `{"id":1,"ok":true}`，
+事件 `{"event":"status","status":{...}}`、`{"event":"log","message":"..."}`。
+
 ## 构建与运行
 
 需要 .NET 10 SDK（`dotnet --version` ≥ 10.0）。仓库：<https://github.com/lubuoren/vk-sagittarius>（private）
 
 ```bash
 cd dotnet
-dotnet build VkSagittarius.slnx
+dotnet build VkSagittarius.slnx          # Core + Daemon + App + Tests
 dotnet test tests/VkSagittarius.Tests        # 14 passed
-dotnet run --project src/VkSagittarius.App   # 有设备则直连，无设备自动进演示模式
+dotnet run --project src/VkSagittarius.Daemon  # 后台（Ctrl-C 退出）
+dotnet run --project src/VkSagittarius.App     # 前端；会自动连后台，连不上尝试拉起
 ```
 
 发布：

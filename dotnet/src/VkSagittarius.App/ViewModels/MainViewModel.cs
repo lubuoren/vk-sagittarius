@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Media;
@@ -13,30 +15,31 @@ public sealed class DeviceItem : ObservableObject
 {
     public string Title { get; init; } = "";
     public string Subtitle { get; init; } = "";
-    public string Badge { get; init; } = "";
     public bool Online { get; init; }
     public IBrush Accent => Online ? Brushes.LimeGreen : Brushes.Gray;
 }
 
+/// <summary>
+/// 前端：只做客户端。设备由 vksagd 独占，这里通过 Unix socket 发命令、收状态。
+/// 关掉窗口不影响心跳（后端是独立进程 / systemd user service）。
+/// </summary>
 public sealed class MainViewModel : ObservableObject
 {
     private readonly AppConfig _config;
-    private DeviceSet _set;
-    private MonitorEngine _engine;
-    private bool _demo;
-    private IReadOnlyList<string> _errors;
+    private DaemonClient? _client;
+    private double _uiScale;
+    private bool _ledSynced;
+    private bool _daemonDemo;
+    private string[] _daemonErrors = [];
+    private string _audioBackend = "";
+    private TelemetryDto _lastTelemetry = new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-    public MainViewModel(DeviceBootstrap boot)
+    public MainViewModel()
     {
         _config = AppConfig.Load();
         _uiScale = AppConfig.ParseScale(Environment.GetEnvironmentVariable("VKSAG_SCALE")) ?? _config.Scale;
 
-        _set = boot.Set;
-        _demo = boot.Demo;
-        _errors = boot.Errors;
-
-        Devices = new ObservableCollection<DeviceItem>(BuildDeviceItems(_set));
-
+        Devices = new ObservableCollection<DeviceItem>();
         LedModes = new ObservableCollection<Option>(Proto.LedModes
             .OrderBy(kv => kv.Key)
             .Select(kv => new Option(kv.Key, $"{kv.Key:000}  {kv.Value}")));
@@ -67,9 +70,13 @@ public sealed class MainViewModel : ObservableObject
         _selectedFanChannel = FanChannels[0];
         _selectedFanMode = FanModes.FirstOrDefault(m => m.Id == _fanModeByCh[1]) ?? FanModes[1];
 
+        _selectedScaleOption = ScaleOptions.FirstOrDefault(o => Math.Abs(o.Id / 1000.0 - _uiScale) < 0.001)
+                               ?? new Option((int)Math.Round(_uiScale * 1000), $"{_uiScale:0.###}×");
+        if (!ScaleOptions.Contains(_selectedScaleOption)) ScaleOptions.Add(_selectedScaleOption);
+
         ApplyLedCommand = new RelayCommand(ApplyLed);
         ApplyFanCommand = new RelayCommand(ApplyFan);
-        RefreshCommand = new RelayCommand(Refresh);
+        RefreshCommand = new RelayCommand(() => _ = RefreshAsync());
         RotateCommand = new RelayCommand(Rotate);
         ScreenCommand = new RelayCommand(Screen);
         ClockCommand = new RelayCommand(ToggleClock);
@@ -78,113 +85,209 @@ public sealed class MainViewModel : ObservableObject
         ClearLogCommand = new RelayCommand(FrameLog.Clear);
         RescanCommand = new RelayCommand(Rescan);
         ToggleAutostartCommand = new RelayCommand(ToggleAutostart);
-
-        _selectedScaleOption = ScaleOptions.FirstOrDefault(o => Math.Abs(o.Id / 1000.0 - UiScale) < 0.001)
-                               ?? new Option((int)Math.Round(UiScale * 1000), $"{UiScale:0.###}×");
-        if (!ScaleOptions.Contains(_selectedScaleOption)) ScaleOptions.Add(_selectedScaleOption);
         ScaleResetCommand = new RelayCommand(() =>
         {
-            var opt = ScaleOptions.FirstOrDefault(o => o.Id == 1000);
-            if (opt is not null) SelectedScaleOption = opt;
+            if (ScaleOptions.FirstOrDefault(o => o.Id == 1000) is { } opt) SelectedScaleOption = opt;
         });
 
         _uiTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _uiTimer.Tick += OnUiTick;
+        _uiTimer.Tick += (_, _) => PushHistory();
+        _uiTimer.Start();
 
-        _engine = NewEngine(_set);
-        _set.RegisterAll();
-        Refresh();
-        ReportConnection();
-        _engine.Start();
-        MonitorRunning = true;
-        StartUiTimer();
+        _ = ConnectAsync();
     }
 
-    private static List<DeviceItem> BuildDeviceItems(DeviceSet set) => set.Devices.Select(d => new DeviceItem
-    {
-        Title = Proto.ClassName(d.Class),
-        Subtitle = $"{d.Path}   VID 0x{Proto.Vid:X4}  PID 0x{Proto.PidForClass(d.Class):X4}",
-        Badge = $"类别 {d.Class}",
-        Online = d.Path != "/dev/fake",
-    }).ToList();
+    // ---------------------------------------------------------- 后端连接
 
-    private MonitorEngine NewEngine(DeviceSet set)
+    private async Task ConnectAsync()
     {
-        var engine = new MonitorEngine(set, Log);
-        engine.StateUpdated += st => Dispatcher.UIThread.Post(() => ApplyState(st));
-        return engine;
+        var client = new DaemonClient();
+        client.StatusReceived += s => Dispatcher.UIThread.Post(() => ApplyStatus(s));
+        client.LogReceived += (msg, _) => Dispatcher.UIThread.Post(() => Log(msg));
+        client.Disconnected += () => Dispatcher.UIThread.Post(() =>
+        {
+            DaemonOnline = false;
+            Log("× 与后台进程的连接已断开");
+            OnPropertyChanged(nameof(ModeBanner));
+            OnPropertyChanged(nameof(ModeDetail));
+        });
+
+        var ok = await client.ConnectAsync(TimeSpan.FromSeconds(1.5));
+        if (!ok)
+        {
+            Log("后台进程未运行，尝试启动 vksagd…");
+            TryStartDaemon();
+            ok = await client.ConnectAsync(TimeSpan.FromSeconds(3));
+        }
+
+        if (!ok)
+        {
+            client.Dispose();
+            DaemonOnline = false;
+            Log("× 无法连接后台进程：`systemctl --user start vk-sagittarius` 或直接运行 vksagd");
+            OnPropertyChanged(nameof(ModeBanner));
+            OnPropertyChanged(nameof(ModeDetail));
+            return;
+        }
+
+        _client = client;
+        DaemonOnline = true;
+        Log("已连接后台进程 vksagd");
+        foreach (var line in TailDaemonLog()) Log(line);
+        await RefreshAsync();
     }
 
-    /// <summary>把连接结果如实写进横幅与日志：权限不足、没插设备、--demo 要能区分。</summary>
-    private void ReportConnection()
+    private static void TryStartDaemon()
     {
-        OnPropertyChanged(nameof(IsDemo));
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("systemctl", "--user start vk-sagittarius")
+            {
+                UseShellExecute = false,
+                RedirectStandardError = true,
+            });
+            if (p is not null && p.WaitForExit(2500) && p.ExitCode == 0) return;
+        }
+        catch (Exception) { }
+
+        try
+        {
+            var exe = Path.Combine(AppContext.BaseDirectory, "vksagd");
+            if (!File.Exists(exe)) return;
+            Process.Start(new ProcessStartInfo(exe)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+        }
+        catch (Exception) { }
+    }
+
+    private static IEnumerable<string> TailDaemonLog()
+    {
+        try
+        {
+            if (!File.Exists(Ipc.LogFile)) return [];
+            return File.ReadAllLines(Ipc.LogFile).TakeLast(6)
+                .Select(l => l.Length > 11 ? l[11..] : l).ToArray();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    public bool DaemonOnline { get; private set; }
+    public bool IsDemo => _daemonDemo;
+
+    public string ModeBanner => !DaemonOnline
+        ? "未连接后台进程"
+        : _daemonDemo
+            ? (_daemonErrors.FirstOrDefault()?.Contains("权限") == true
+                ? "后台在演示模式：权限不足"
+                : "后台在演示模式")
+            : "后台已连接真实设备";
+
+    public string ModeDetail => !DaemonOnline
+        ? "GUI 需要 vksagd 后台进程。\n启动：systemctl --user start vk-sagittarius\n或直接运行 vksagd。"
+        : string.Join("\n", _daemonErrors);
+
+    public string AudioBanner => string.IsNullOrEmpty(_audioBackend)
+        ? "音频后端：不可用（parec / pw-cat 未安装）"
+        : $"音频后端：{_audioBackend}";
+
+    // ---------------------------------------------------------- 状态应用
+
+    private void ApplyStatus(StatusDto status)
+    {
+        _daemonDemo = status.Demo;
+        _daemonErrors = status.Errors;
+        _audioBackend = status.AudioBackend ?? "";
+        MonitorRunning = status.MonitorRunning;
+        FrameCount = status.Frames;
+
         OnPropertyChanged(nameof(ModeBanner));
         OnPropertyChanged(nameof(ModeDetail));
+        OnPropertyChanged(nameof(IsDemo));
         OnPropertyChanged(nameof(AudioBanner));
 
-        if (!_demo)
-        {
-            Log($"已连接 {_set.Devices.Count} 台设备：" +
-                string.Join("、", _set.Devices.Select(d => $"{Proto.ClassName(d.Class)}@{d.Path}")));
-            return;
-        }
-        Log("演示模式（帧只写内存假设备）：" + (_errors.Count > 0 ? _errors[0] : "原因未知"));
-        foreach (var err in _errors.Skip(1)) Log("  " + err);
+        SyncDevices(status);
+        ApplyTelemetry(status.Telemetry);
+        ApplyState(status.State);
     }
 
-    private void Rescan()
+    private void SyncDevices(StatusDto status)
     {
-        var boot = App.CreateDevice(false);
-        if (!boot.Demo)
-        {
-            _engine.Stop();
-            _engine.Dispose();
-            _set.Dispose();
-        }
-        else
-        {
-            boot.Set.Dispose();          // 仍是演示数据，丢弃
-            Log($"× 重新扫描未连上：{boot.Errors.FirstOrDefault() ?? "未知原因"}");
-            _demo = true;
-            _errors = boot.Errors;
-            ReportConnection();
-            return;
-        }
+        var wanted = status.Devices.Select(d => Proto.ClassName(d.DeviceClass)).ToList();
+        if (Devices.Count == wanted.Count && Devices.Select(d => d.Title).SequenceEqual(wanted)) return;
 
-        _set = boot.Set;
-        _demo = boot.Demo;
-        _errors = boot.Errors;
         Devices.Clear();
-        foreach (var item in BuildDeviceItems(_set)) Devices.Add(item);
-        _engine = NewEngine(_set);
-        _set.RegisterAll();
-        ReportConnection();
-        _engine.Start();
-        MonitorRunning = true;
-        Refresh();
+        foreach (var d in status.Devices)
+        {
+            Devices.Add(new DeviceItem
+            {
+                Title = Proto.ClassName(d.DeviceClass),
+                Subtitle = $"{d.Path}   VID 0x{Proto.Vid:X4}  PID 0x{Proto.PidForClass(d.DeviceClass):X4}",
+                Online = !d.Path.Contains("fake"),
+            });
+        }
     }
 
-    // ---------------------------------------------------------- 设备 / 遥测
+    private void ApplyTelemetry(TelemetryDto t)
+    {
+        _lastTelemetry = t;
+        CpuTemp = $"{t.CpuTemp:0.0} ℃";
+        GpuTemp = $"{t.GpuTemp:0.0} ℃";
+        CpuUsage = $"{t.CpuUsage} %";
+        MemUsage = $"{t.MemUsage} %";
+        CpuFreq = $"{t.CpuFreqMhz:0} MHz";
+        FanRpm = $"{t.CpuFanRpm} RPM";
+    }
+
+    private void ApplyState(StateDto? state)
+    {
+        if (state is null) return;
+
+        foreach (var f in state.Fans)
+        {
+            SetRpm(f.Channel, f.Rpm);
+            if (f.Channel is >= 1 and <= 4) _fanModeByCh[f.Channel] = f.Mode;
+        }
+        if (SelectedFanChannel is { } cur &&
+            FanModes.FirstOrDefault(m => m.Id == _fanModeByCh[cur.Id]) is { } m2)
+            SelectedFanMode = m2;
+
+        if (!_ledSynced && state.Led is { } led)
+        {
+            _ledSynced = true;
+            SelectedLedMode = LedModes.FirstOrDefault(m => m.Id == led.Mode) ?? SelectedLedMode;
+            Brightness = led.Brightness;
+            Speed = led.Speed switch { 1 => 100, 2 => 50, 4 => 1, _ => Speed };
+            R = led.R;
+            G = led.G;
+            B = led.B;
+            Log($"从设备回读：模式 {led.Mode}，亮度 {led.Brightness}，颜色 #{led.R:X2}{led.G:X2}{led.B:X2}");
+        }
+
+        var parts = state.Fans.OrderBy(f => f.Channel)
+            .Select(f => $"风扇{f.Channel}: {f.Mode}档 {f.Rpm}RPM").ToList();
+        if (state.Led is { } l)
+            parts.Add($"灯效: 模式{l.Mode} 亮度{l.Brightness} 速度{l.Speed} #{l.R:X2}{l.G:X2}{l.B:X2}");
+        LedStateText = parts.Count > 0 ? string.Join(" | ", parts) : "（等待设备回报）";
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_client is null) return;
+        var resp = await _client.StatusAsync(TimeSpan.FromSeconds(2));
+        if (resp.Status is { } st) ApplyStatus(st);
+    }
+
+    // ---------------------------------------------------------- 遥测展示
 
     public ObservableCollection<DeviceItem> Devices { get; }
-    public bool IsDemo => _demo;
-
-    public string ModeBanner => _demo
-        ? (_errors.Count > 0 && _errors[0].Contains("权限") ? "未连上设备：权限不足（演示模式）"
-           : _errors.Count > 0 && _errors[0].Contains("--demo") ? "演示模式（手动指定 --demo）"
-           : "未发现设备（演示模式）")
-        : "已连接真实设备";
-
-    /// <summary>完整原因，鼠标悬停横幅可见。</summary>
-    public string ModeDetail => _demo
-        ? string.Join("\n", _errors) + "\n\n权限不足时执行：\n" +
-          "sudo install -m644 /usr/lib/udev/rules.d/99-vk-sagittarius.rules /etc/udev/rules.d/ 2>/dev/null || true\n" +
-          "sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw\n" +
-          "然后点「重新扫描」。"
-        : $"已连接 {_set.Devices.Count} 台设备";
-
-    public string AudioBanner => _set.AudioAvailable ? $"音频后端：{_set.Meter.Backend}" : "音频后端：不可用（parec / pw-cat 未安装）";
 
     private string _cpuTemp = "-";
     public string CpuTemp { get => _cpuTemp; private set => Set(ref _cpuTemp, value); }
@@ -198,50 +301,6 @@ public sealed class MainViewModel : ObservableObject
     public string CpuFreq { get => _cpuFreq; private set => Set(ref _cpuFreq, value); }
     private string _fanRpm = "-";
     public string FanRpm { get => _fanRpm; private set => Set(ref _fanRpm, value); }
-
-    public void Refresh()
-    {
-        var t = _set.Refresh();
-        CpuTemp = $"{t.CpuTemp:0.0} ℃";
-        GpuTemp = $"{t.GpuTemp:0.0} ℃";
-        CpuUsage = $"{t.CpuUsage} %";
-        MemUsage = $"{t.MemUsage} %";
-        CpuFreq = $"{t.CpuFreqMhz:0} MHz";
-        FanRpm = $"{t.CpuFanRpm} RPM";
-        OnPropertyChanged(nameof(AudioBanner));
-    }
-
-    private bool _ledSynced;
-
-    /// <summary>设备回读 → 界面同步。原程序：灯效只在首次收到状态时回填一次，
-    /// 风扇每路模式则持续跟随设备（myALLMode 与 data[ch*3+12]）。</summary>
-    private void ApplyState(Proto.DeviceState st)
-    {
-        for (var ch = 1; ch <= 4; ch++)
-        {
-            if (!st.Fans.TryGetValue(ch, out var f)) continue;
-            SetRpm(ch, f.Rpm);
-            _fanModeByCh[ch] = f.Mode;
-        }
-        if (SelectedFanChannel is { } cur &&
-            FanModes.FirstOrDefault(m => m.Id == _fanModeByCh[cur.Id]) is { } m2)
-            SelectedFanMode = m2;
-
-        if (!_ledSynced && st.Led is { } led)
-        {
-            _ledSynced = true;
-            SelectedLedMode = LedModes.FirstOrDefault(m => m.Id == led.Mode) ?? SelectedLedMode;
-            Brightness = led.Brightness;
-            // 设备侧速度档 1/2/4 → 滑杆 100/50/1（原程序 speedVal = {100,100,50,1,1}）
-            Speed = led.Speed switch { 1 => 100, 2 => 50, 4 => 1, _ => Speed };
-            R = led.R;
-            G = led.G;
-            B = led.B;
-            Log($"从设备回读：模式 {led.Mode}，亮度 {led.Brightness}，颜色 #{led.R:X2}{led.G:X2}{led.B:X2}");
-        }
-
-        LedStateText = st.Describe();
-    }
 
     private readonly string[] _fanRpmByCh = ["-", "-", "-", "-"];
     public string FanRpm1 => _fanRpmByCh[0];
@@ -316,31 +375,11 @@ public sealed class MainViewModel : ObservableObject
         ApplyLed();
     }
 
+    private int CurrentSpeedCode => Speed < 33 ? Proto.LedSpeedSlow : Speed < 66 ? Proto.LedSpeedMid : Proto.LedSpeedFast;
+
     private void ApplyLed()
     {
-        var dev = _set.FanLed;
-        if (dev is null) { Log("× 没有风扇/灯效设备"); return; }
-        var speed = Speed < 33 ? Proto.LedSpeedSlow : Speed < 66 ? Proto.LedSpeedMid : Proto.LedSpeedFast;
-        var rgb = ((int)R, (int)G, (int)B);
-        try
-        {
-            if (SelectedLedMode.Id == 10)
-            {
-                // 原程序 SendLEDData1：mode 固定 1，负载 {0,速度,0,0,0,0}
-                var (mode, payload) = Proto.LedAutoPayload(speed);
-                dev.Send(Proto.BuildReport(dev.Class, dev.Index, Proto.Cmd.Led,
-                    SelectedLedChannel.Id, mode, payload));
-                Log($"LED → 全彩自动（通道 {SelectedLedChannel.Id}，速度 {speed}，负载全零由设备自行跑色）");
-            }
-            else
-            {
-                dev.SetLed(SelectedLedMode.Id, rgb, (int)Brightness, speed, SelectedLedChannel.Id);
-                Log($"LED → 模式 {SelectedLedMode.Id} 通道 {SelectedLedChannel.Id} " +
-                    $"亮度 {Brightness:0} 速度 {speed} #{ColorHex}");
-            }
-        }
-        catch (Exception ex) { Log($"× LED 发送失败：{ex.Message}"); }
-
+        var speed = CurrentSpeedCode;
         _config.Led.Mode = SelectedLedMode.Id;
         _config.Led.Channel = SelectedLedChannel.Id;
         _config.Led.Brightness = (int)Brightness;
@@ -349,12 +388,24 @@ public sealed class MainViewModel : ObservableObject
         _config.Led.G = (int)G;
         _config.Led.B = (int)B;
         _config.Save();
+
+        Send(new IpcRequest
+            {
+                Op = Ipc.OpLed,
+                Led = new LedRequest(SelectedLedMode.Id, SelectedLedChannel.Id, (int)Brightness, speed,
+                    (int)R, (int)G, (int)B),
+            },
+            SelectedLedMode.Id == 10
+                ? $"LED → 全彩自动（通道 {SelectedLedChannel.Id}，速度 {speed}）"
+                : $"LED → 模式 {SelectedLedMode.Id} 通道 {SelectedLedChannel.Id} 亮度 {Brightness:0} 速度 {speed} #{ColorHex}");
     }
 
     // ---------------------------------------------------------- 风扇
 
     public IReadOnlyList<Option> FanChannels { get; }
     public ObservableCollection<Option> FanModes { get; }
+
+    private readonly int[] _fanModeByCh = [0, 2, 2, 2, 2];
 
     private Option _selectedFanChannel;
     public Option SelectedFanChannel
@@ -363,15 +414,12 @@ public sealed class MainViewModel : ObservableObject
         set
         {
             if (!Set(ref _selectedFanChannel, value) || value is null) return;
-            // 原程序 myALLMode[通道] 记忆每路各自的曲线模式
             SelectedFanMode = FanModes.FirstOrDefault(m => m.Id == _fanModeByCh[value.Id]) ?? FanModes[1];
         }
     }
+
     private Option _selectedFanMode;
     public Option SelectedFanMode { get => _selectedFanMode; set => Set(ref _selectedFanMode, value); }
-
-    /// <summary>每路风扇的曲线模式（下标即通道号，1..4），对齐原程序 myALLMode。</summary>
-    private readonly int[] _fanModeByCh = [2, 2, 2, 2, 2];
 
     public double Pwm1 { get; set; } = 20;
     public double Pwm2 { get; set; } = 55;
@@ -384,31 +432,24 @@ public sealed class MainViewModel : ObservableObject
 
     private void ApplyFan()
     {
-        var dev = _set.FanLed;
-        if (dev is null) { Log("× 没有风扇/灯效设备"); return; }
-        try
-        {
-            _fanModeByCh[SelectedFanChannel.Id] = SelectedFanMode.Id;
-            if (SelectedFanMode.Id == Proto.FanModeCustom)
-            {
-                dev.SetFan(SelectedFanChannel.Id, Proto.FanModeCustom,
-                    ([(int)Pwm1, (int)Pwm2, (int)Pwm3], [(int)Temp1, (int)Temp2, (int)Temp3]));
-                Log($"FAN → 通道 {SelectedFanChannel.Id} 自定义 PWM[{(int)Pwm1},{(int)Pwm2},{(int)Pwm3}] " +
-                    $"TEMP[{(int)Temp1},{(int)Temp2},{(int)Temp3}]");
-            }
-            else
-            {
-                dev.SetFan(SelectedFanChannel.Id, SelectedFanMode.Id);
-                Log($"FAN → 通道 {SelectedFanChannel.Id} 预设「{SelectedFanMode.Label}」");
-            }
-        }
-        catch (Exception ex) { Log($"× 风扇发送失败：{ex.Message}"); }
-
+        var ch = SelectedFanChannel.Id;
+        var mode = SelectedFanMode.Id;
+        _fanModeByCh[ch] = mode;
         _config.Fan.Modes = (int[])_fanModeByCh.Clone();
         _config.Fan.Pwm = [(int)Pwm1, (int)Pwm2, (int)Pwm3];
         _config.Fan.Temp = [(int)Temp1, (int)Temp2, (int)Temp3];
         _config.Save();
-        Log("风扇设置已保存到 ~/.config/vk-sagittarius/config.json");
+
+        Send(new IpcRequest
+            {
+                Op = Ipc.OpFan,
+                Fan = mode == Proto.FanModeCustom
+                    ? new FanRequest(ch, mode, [(int)Pwm1, (int)Pwm2, (int)Pwm3], [(int)Temp1, (int)Temp2, (int)Temp3])
+                    : new FanRequest(ch, mode, null, null),
+            },
+            mode == Proto.FanModeCustom
+                ? $"FAN → 通道 {ch} 自定义 PWM[{(int)Pwm1},{(int)Pwm2},{(int)Pwm3}] TEMP[{(int)Temp1},{(int)Temp2},{(int)Temp3}]（已保存）"
+                : $"FAN → 通道 {ch} 预设「{SelectedFanMode.Label}」（已保存）");
     }
 
     // ---------------------------------------------------------- LCD
@@ -431,50 +472,60 @@ public sealed class MainViewModel : ObservableObject
             "270" => Proto.LcdSub.Rot270,
             _ => Proto.LcdSub.Rot0,
         };
-        SendLcd(sub, $"旋转 {param}°");
+        Send(new IpcRequest { Op = Ipc.OpLcd, Sub = (int)sub }, $"LCD → 旋转 {param}°");
     }
 
     private void Screen(object? param) =>
-        SendLcd(param?.ToString() == "black" ? Proto.LcdSub.Black : Proto.LcdSub.White,
-            param?.ToString() == "black" ? "整屏黑" : "整屏白");
+        Send(new IpcRequest
+            {
+                Op = Ipc.OpLcd,
+                Sub = (int)(param?.ToString() == "black" ? Proto.LcdSub.Black : Proto.LcdSub.White),
+            },
+            param?.ToString() == "black" ? "LCD → 整屏黑" : "LCD → 整屏白");
 
-    private void ToggleClock() => SendLcd(Proto.LcdSub.Clock, ClockEnabled ? "显示时间" : "隐藏时间");
-
-    private void SendLcd(Proto.LcdSub sub, string what)
-    {
-        var dev = _set.Lcd;
-        if (dev is null) { Log("× 没有 LCD 设备"); return; }
-        try
-        {
-            if (sub == Proto.LcdSub.Clock) dev.LcdClock(Hour24, blank: !ClockEnabled);
-            else dev.LcdSimple(sub);
-            Log($"LCD → {what}");
-        }
-        catch (Exception ex) { Log($"× LCD 发送失败：{ex.Message}"); }
-    }
+    private void ToggleClock() =>
+        Send(new IpcRequest { Op = Ipc.OpClock, Hour24 = Hour24, Blank = !ClockEnabled },
+            ClockEnabled ? "LCD → 显示时间" : "LCD → 隐藏时间");
 
     public async Task UploadAsync(string path)
     {
-        var dev = _set.Lcd;
-        if (dev is null) { Log("× 没有 LCD 设备"); return; }
-        if (_demo)
+        var resp = await SendAsync(new IpcRequest { Op = Ipc.OpUpload, FilePath = path }, null);
+        Log(resp.Ok ? $"✓ 背景上传完成：{Path.GetFileName(path)}" : $"× 上传失败：{resp.Error}");
+    }
+
+    // ---------------------------------------------------------- 命令发送
+
+    private void Send(IpcRequest request, string logMessage)
+    {
+        Log(logMessage);
+        _ = SendAsync(request, null);
+    }
+
+    private async Task<IpcResponse> SendAsync(IpcRequest request, string? logMessage)
+    {
+        if (_client is null)
         {
-            Log($"（演示模式）跳过真实上传：{path}");
-            return;
+            Log("× 未连接后台进程");
+            return new IpcResponse { Ok = false, Error = "未连接后台进程" };
         }
-        var ok = await Task.Run(() => new LcdUploader(Log).Upload(dev, path));
-        Log(ok ? "✓ 背景上传完成" : "× 背景上传失败");
+        if (logMessage is not null) Log(logMessage);
+        var resp = await _client.SendAsync(request, TimeSpan.FromSeconds(60));
+        if (!resp.Ok) Log($"× {request.Op} 失败：{resp.Error}");
+        return resp;
     }
 
     // ---------------------------------------------------------- 监控 / 日志
 
-    private bool _monitorRunning;
+    private bool _monitorRunning = true;
     public bool MonitorRunning
     {
         get => _monitorRunning;
         private set { if (Set(ref _monitorRunning, value)) OnPropertyChanged(nameof(MonitorButtonText)); }
     }
     public string MonitorButtonText => MonitorRunning ? "暂停心跳" : "启动心跳";
+
+    private long _frameCount;
+    public long FrameCount { get => _frameCount; private set => Set(ref _frameCount, value); }
 
     public RelayCommand ToggleMonitorCommand { get; }
     public RelayCommand RefreshCommand { get; }
@@ -483,11 +534,47 @@ public sealed class MainViewModel : ObservableObject
 
     private void ToggleMonitor()
     {
-        if (MonitorRunning) { _engine.Stop(); MonitorRunning = false; Log("心跳已暂停"); }
-        else { _engine.Start(); MonitorRunning = true; Log("心跳已启动"); }
+        var op = MonitorRunning ? Ipc.OpPause : Ipc.OpResume;
+        Send(new IpcRequest { Op = op }, MonitorRunning ? "心跳已暂停" : "心跳已恢复");
+        MonitorRunning = !MonitorRunning;
     }
 
-    // ---------------------------------------------------------- 系统信息 / 曲线 / 自启
+    /// <summary>后台不支持进程内重扫：重启服务后重连。</summary>
+    private void Rescan()
+    {
+        Log("重启后台进程以重新扫描设备…");
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("systemctl", "--user restart vk-sagittarius")
+            {
+                UseShellExecute = false,
+                RedirectStandardError = true,
+            });
+            p?.WaitForExit(5000);
+        }
+        catch (Exception ex)
+        {
+            Log($"× 重启失败：{ex.Message}");
+        }
+        _client?.Dispose();
+        _client = null;
+        _ = ConnectAsync();
+    }
+
+    public ObservableCollection<string> FrameLog { get; } = new();
+
+    public void Log(string message)
+    {
+        void Add()
+        {
+            FrameLog.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
+            while (FrameLog.Count > 200) FrameLog.RemoveAt(FrameLog.Count - 1);
+        }
+        if (Dispatcher.UIThread.CheckAccess()) Add();
+        else Dispatcher.UIThread.Post(Add);
+    }
+
+    // ---------------------------------------------------------- 系统信息 / 曲线
 
     private static readonly SystemInfo SysInfo = SystemInfo.Read();
 
@@ -502,7 +589,6 @@ public sealed class MainViewModel : ObservableObject
     private readonly List<double> _cpuHist = new();
     private readonly List<double> _gpuHist = new();
 
-    /// <summary>温度曲线（画布 420x110，60 个采样点，1Hz）。</summary>
     public Geometry CpuGeometry => BuildGeometry(_cpuHist, 420, 110);
     public Geometry GpuGeometry => BuildGeometry(_gpuHist, 420, 110);
 
@@ -523,27 +609,15 @@ public sealed class MainViewModel : ObservableObject
 
     private void PushHistory()
     {
-        _cpuHist.Add(_set.Snapshot.CpuTemp);
-        _gpuHist.Add(_set.Snapshot.GpuTemp);
+        _cpuHist.Add(_lastTelemetry.CpuTemp);
+        _gpuHist.Add(_lastTelemetry.GpuTemp);
         if (_cpuHist.Count > 60) _cpuHist.RemoveAt(0);
         if (_gpuHist.Count > 60) _gpuHist.RemoveAt(0);
         OnPropertyChanged(nameof(CpuGeometry));
         OnPropertyChanged(nameof(GpuGeometry));
     }
 
-    // 原程序 Form1 有定时器刷新系统信息；这里同样用 1Hz 的 UI 定时器
     private readonly DispatcherTimer _uiTimer;
-
-    private void StartUiTimer()
-    {
-        _uiTimer.Start();
-    }
-
-    private void OnUiTick(object? sender, EventArgs e)
-    {
-        Refresh();
-        PushHistory();
-    }
 
     // ---------------------------------------------------------- 开机自启
 
@@ -552,7 +626,7 @@ public sealed class MainViewModel : ObservableObject
         ".config", "autostart", "vk-sagittarius.desktop");
 
     public bool AutostartEnabled => File.Exists(AutostartFile);
-
+    public string AutostartText => AutostartEnabled ? "开机自启：开" : "开机自启：关";
     public RelayCommand ToggleAutostartCommand { get; }
 
     private void ToggleAutostart()
@@ -566,19 +640,18 @@ public sealed class MainViewModel : ObservableObject
             }
             else
             {
-                var dir = Path.GetDirectoryName(AutostartFile)!;
-                Directory.CreateDirectory(dir);
+                Directory.CreateDirectory(Path.GetDirectoryName(AutostartFile)!);
                 var exe = Environment.ProcessPath ?? "/usr/bin/vk-sagittarius";
                 File.WriteAllText(AutostartFile, $"""
                     [Desktop Entry]
                     Type=Application
                     Name=VK 射手座控制中心
-                    Exec={exe} --headless
+                    Exec={exe} --tray
                     X-GNOME-Autostart-enabled=true
                     NoDisplay=false
                     Terminal=false
                     """);
-                Log($"开机自启：已开启（{exe} --headless）");
+                Log($"开机自启：已开启（{exe} --tray，只驻留托盘）");
             }
         }
         catch (Exception ex) { Log($"× 自启设置失败：{ex.Message}"); }
@@ -586,17 +659,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(AutostartText));
     }
 
-    public string AutostartText => AutostartEnabled ? "开机自启：开" : "开机自启：关";
-
     // ---------------------------------------------------------- 界面缩放
-
-    /// <summary>
-    /// 界面缩放。XWayland + Hyprland 的 fractional scale（如 1.875）不会传给 X11 程序，
-    /// Avalonia 默认按 1.0 画，于是 4K 屏上字小、再被合成器放大发虚。
-    /// 这里显式接管：CLI --scale / 环境变量 VKSAG_SCALE / 配置文件 / 界面选择，
-    /// 用 LayoutTransform 缩放整棵可视树（矢量重绘，不是位图放大）。
-    /// </summary>
-    private double _uiScale;
 
     public double UiScale
     {
@@ -634,29 +697,16 @@ public sealed class MainViewModel : ObservableObject
             UiScale = value.Id / 1000.0;
             _config.Scale = UiScale;
             _config.Save();
-            Log($"界面缩放 → {UiScale:0.###}×（已保存到 ~/.config/vk-sagittarius/config.json）");
+            Log($"界面缩放 → {UiScale:0.###}×（已保存）");
         }
     }
 
     public RelayCommand ScaleResetCommand { get; }
 
-    public ObservableCollection<string> FrameLog { get; } = new();
-
-    public void Log(string message)
-    {
-        void Add()
-        {
-            FrameLog.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
-            while (FrameLog.Count > 200) FrameLog.RemoveAt(FrameLog.Count - 1);
-        }
-        if (Dispatcher.UIThread.CheckAccess()) Add();
-        else Dispatcher.UIThread.Post(Add);
-    }
-
     public void Shutdown()
     {
         _uiTimer.Stop();
-        _engine.Dispose();
-        _set.Dispose();
+        _client?.Dispose();
+        _client = null;
     }
 }

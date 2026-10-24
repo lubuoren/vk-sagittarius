@@ -62,7 +62,7 @@ internal static class Program
     /// </summary>
     private static int HeadlessRun(int seconds, string? path = null)
     {
-        var boot = App.CreateDevice(false, path);
+        var boot = DeviceFactory.Open(false, path);
         if (boot.Demo)
         {
             Console.Error.WriteLine("没有可用的真实设备，心跳模式不启动。原因：");
@@ -105,7 +105,7 @@ internal static class Program
         foreach (var c in candidates)
             Console.WriteLine($"  {c.Path}  PID 0x{c.Pid:X4}  类别 {c.DeviceClass}  {c.Name}");
 
-        var boot = App.CreateDevice(false, path);
+        var boot = DeviceFactory.Open(false, path);
         var set = boot.Set;
         Console.WriteLine($"{boot.Demo switch { true => "演示模式（无真实设备）", false => "真实设备已连接" }}");
         foreach (var err in boot.Errors) Console.WriteLine("  ! " + err);

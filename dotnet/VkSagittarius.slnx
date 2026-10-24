@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/VkSagittarius.App/VkSagittarius.App.csproj" />
     <Project Path="src/VkSagittarius.Core/VkSagittarius.Core.csproj" />
+    <Project Path="src/VkSagittarius.Daemon/VkSagittarius.Daemon.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VkSagittarius.Tests/VkSagittarius.Tests.csproj" />

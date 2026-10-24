@@ -11,14 +11,22 @@ namespace VkSagittarius.App.Views;
 public partial class MainWindow : Window
 {
     private TrayIcon? _tray;
+    private bool _realExit;
 
     public MainWindow()
     {
         InitializeComponent();
         UploadButton.Click += OnUploadClick;
         TryCreateTray();
-        Closing += (_, _) =>
+        Closing += (_, e) =>
         {
+            // 关窗口 = 收到托盘（后端是独立进程，心跳不受影响）；托盘菜单「退出」才真退
+            if (!_realExit && _tray is not null)
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
             _tray?.Dispose();
             (DataContext as MainViewModel)?.Shutdown();
         };
@@ -35,7 +43,7 @@ public partial class MainWindow : Window
             var showItem = new NativeMenuItem("显示窗口");
             showItem.Click += (_, _) => { Show(); WindowState = WindowState.Normal; Activate(); };
             var exitItem = new NativeMenuItem("退出");
-            exitItem.Click += (_, _) => Close();
+            exitItem.Click += (_, _) => { _realExit = true; Close(); };
             menu.Add(showItem);
             menu.Add(new NativeMenuItemSeparator());
             menu.Add(exitItem);

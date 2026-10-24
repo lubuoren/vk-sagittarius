@@ -20,8 +20,13 @@ AppBuilder.Configure<App>()
     .UseSkia()
     .SetupWithoutStarting();
 
-var set = new DeviceSet([new FakeTransport(1), new FakeTransport(3)]);
-var vm = new MainViewModel(new DeviceBootstrap(set, Demo: true, Errors: ["已指定 --demo"]));
+// 起一个演示模式的守护进程，让 GUI 按真实链路走 IPC
+var sock = Path.Combine(Path.GetTempPath(), $"vksag-shot-{Guid.NewGuid():N}.sock");
+Environment.SetEnvironmentVariable("VKSAG_SOCKET", sock);
+var server = new DaemonServer(DeviceFactory.Demo("截图演示"), sock, persistLog: false);
+server.Start();
+
+var vm = new MainViewModel();
 var window = new MainWindow { DataContext = vm };
 window.Show();
 
@@ -66,4 +71,5 @@ Console.WriteLine($"日志 {vm.FrameLog.Count} 条");
 foreach (var line in vm.FrameLog) Console.WriteLine("  " + line);
 
 vm.Shutdown();
+server.Dispose();
 return rc;

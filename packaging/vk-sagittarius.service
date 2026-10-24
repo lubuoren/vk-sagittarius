@@ -1,13 +1,17 @@
 [Unit]
-Description=VK 射手座控制中心（只跑心跳，不开窗口）
-After=graphical-session.target sound.target
+Description=VK 射手座控制中心 · 后台守护进程（vksagd）
+Documentation=https://github.com/lubuoren/vk-sagittarius
+# 只操作 hidraw，不需要图形会话；登出也不该停
+After=systemd-udevd.service
 
 [Service]
 Type=simple
-# 用 --self-test 之外的常驻模式：界面进程最小化运行，保持 LCD / 灯效心跳
-ExecStart=/opt/vk-sagittarius/VkSagittarius.App --headless
+ExecStart=/usr/bin/vksagd
 Restart=on-failure
-RestartSec=5
+RestartSec=3
+# 设备权限靠 udev 的 uaccess / input 组
+# 日志：journalctl --user -u vk-sagittarius -f
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 [Install]
 WantedBy=default.target

@@ -46,6 +46,18 @@ build() {
   # 单测先跑一遍，挂了就别打包
   dotnet test dotnet/tests/VkSagittarius.Tests/VkSagittarius.Tests.csproj -c Release
 
+  # 先发布后台守护进程，再发布 GUI；两者共用同一个自包含运行时目录
+  dotnet publish dotnet/src/VkSagittarius.Daemon/VkSagittarius.Daemon.csproj \
+    -c Release \
+    -r linux-x64 \
+    --self-contained true \
+    -p:ContinuousIntegrationBuild=true \
+    -p:DeterministicSourcePaths=true \
+    -p:DebugType=none \
+    -p:DebugSymbols=false \
+    -p:PathMap="$srcdir=/build" \
+    -o "$srcdir/out"
+
   dotnet publish dotnet/src/VkSagittarius.App/VkSagittarius.App.csproj \
     -c Release \
     -r linux-x64 \
@@ -63,10 +75,11 @@ package() {
 
   install -d "$pkgdir/opt/$pkgname"
   cp -a "$srcdir/out/." "$pkgdir/opt/$pkgname/"
-  chmod +x "$pkgdir/opt/$pkgname/VkSagittarius.App"
+  chmod +x "$pkgdir/opt/$pkgname/VkSagittarius.App" "$pkgdir/opt/$pkgname/vksagd"
 
   install -d "$pkgdir/usr/bin"
   ln -s "/opt/$pkgname/VkSagittarius.App" "$pkgdir/usr/bin/$pkgname"
+  ln -s "/opt/$pkgname/vksagd" "$pkgdir/usr/bin/vksagd"
 
   # udev：让 /dev/hidraw* 对当前登录用户可写，免 sudo
   install -Dm644 packaging/99-vk-sagittarius.rules \
