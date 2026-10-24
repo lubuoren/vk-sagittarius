@@ -25,7 +25,7 @@ packaging/                   udev 规则、desktop 入口、安装脚本
 
 ## 构建与运行
 
-需要 .NET 10 SDK（`dotnet --version` ≥ 10.0）。
+需要 .NET 10 SDK（`dotnet --version` ≥ 10.0）。仓库：<https://github.com/lubuoren/vk-sagittarius>（private）
 
 ```bash
 cd dotnet
@@ -102,3 +102,25 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5203", TAG+="ua
 
 真机首次验证建议顺序：`--self-test` → 灯效页改颜色 → 风扇页切预设 →
 LCD 页旋转 90° → 最后再试上传背景。
+
+## 打包（Arch / AUR 形式）
+
+`packaging/PKGBUILD` + `packaging/.SRCINFO` 可直接 `makepkg`：
+
+```bash
+cd packaging
+makepkg -si            # 需要 dotnet-sdk（构建期会联网做一次 NuGet 还原）
+```
+
+要点：
+
+- 包内路径 `/opt/vk-sagittarius/`，命令入口 `/usr/bin/vk-sagittarius`；
+- 自包含发布，装完不依赖 `dotnet-runtime`，包体积约 100 MB；
+- 顺手装上 udev 规则、desktop 入口、hicolor 图标与 `systemd --user` 的
+  `vk-sagittarius.service`（`--headless` 常驻心跳，不开窗口）；
+- `optdepends`：`udisks2`（LCD 换背景挂 U 盘）、`pulseaudio`/`pipewire`（音频电平灯效）；
+- 源码包 `vk-sagittarius-1.0.0.tar.gz` 的 sha256 已写入 PKGBUILD 与 .SRCINFO，
+  改版本时两处一起改。
+
+已有构建产物（不想自己编译时）：`vk-sagittarius-1.0.0-linux-x64.tar.gz`，
+解压后直接跑里面的 `VkSagittarius.App`。
