@@ -73,9 +73,12 @@ public static class ScaleConfig
         return Math.Round(v, 3);
     }
 
-    /// <summary>Xft.dpi / 96；读不到就 1.0（大多数 X11 桌面把 dpi 设成 96×缩放）。</summary>
+    /// <summary>优先问合成器：Hyprland 的 fractional scale 只有 hyprctl 拿得到。
+    /// 其次 Xft.dpi / 96；都没有就 1.0。</summary>
     public static double AutoDetect()
     {
+        if (ReadHyprlandScale() is { } h && h is >= Min and <= Max) return Math.Round(h, 3);
+
         var dpi = ReadXftDpi() ?? ParseEnvDpi();
         if (dpi is { } d && d > 0)
         {
@@ -83,6 +86,42 @@ public static class ScaleConfig
             if (scale is >= Min and <= Max) return scale;
         }
         return 1.0;
+    }
+
+    private static double? ReadHyprlandScale()
+    {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE")))
+            return null;
+        try
+        {
+            var psi = new ProcessStartInfo("hyprctl", "monitors -j")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = Process.Start(psi);
+            if (p is null) return null;
+            var json = p.StandardOutput.ReadToEnd();
+            if (!p.WaitForExit(800)) { try { p.Kill(); } catch (Exception) { } return null; }
+            if (json.Length == 0) return null;
+
+            using var doc = JsonDocument.Parse(json);
+            foreach (var m in doc.RootElement.EnumerateArray())
+            {
+                if (m.TryGetProperty("focused", out var focused) && focused.GetBoolean() &&
+                    m.TryGetProperty("scale", out var sc) && sc.TryGetDouble(out var v) && v > 0)
+                    return v;
+            }
+            foreach (var m in doc.RootElement.EnumerateArray())
+                if (m.TryGetProperty("scale", out var sc) && sc.TryGetDouble(out var v) && v > 0)
+                    return v;
+        }
+        catch (Exception)
+        {
+            // hyprctl 不在、JSON 变了、socket 不可达：都退回 Xft.dpi
+        }
+        return null;
     }
 
     private static double? ParseEnvDpi()
