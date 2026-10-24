@@ -1,0 +1,3 @@
+# 打包元数据不随源码包分发，避免 PKGBUILD 里写自身 tarball 的 sha256 造成循环
+packaging/PKGBUILD export-ignore
+packaging/.SRCINFO export-ignore
