@@ -21,7 +21,7 @@ AppBuilder.Configure<App>()
     .SetupWithoutStarting();
 
 var set = new DeviceSet([new FakeTransport(1), new FakeTransport(3)]);
-var vm = new MainViewModel(set, demo: true);
+var vm = new MainViewModel(new DeviceBootstrap(set, Demo: true, Errors: ["已指定 --demo"]));
 var window = new MainWindow { DataContext = vm };
 window.Show();
 

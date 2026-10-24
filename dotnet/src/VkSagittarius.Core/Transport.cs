@@ -119,6 +119,8 @@ public sealed record HidCandidate(string Path, ushort Vid, ushort Pid, string Na
     public int DeviceClass => Proto.ClassForPid(Pid);
 }
 
+public sealed record DeviceOpenReport(IReadOnlyList<IHidTransport> Devices, IReadOnlyList<string> Errors);
+
 public static class DeviceScanner
 {
     private const string SysRoot = "/sys/class/hidraw";
@@ -147,19 +149,31 @@ public static class DeviceScanner
         return list;
     }
 
-    public static IReadOnlyList<IHidTransport> OpenAll()
+    /// <summary>
+    /// 逐个尝试打开，失败原因逐条收集——不要因为一台设备没权限就把整批降级成"没设备"。
+    /// </summary>
+    public static DeviceOpenReport OpenAll()
     {
         var counters = new Dictionary<int, int>();
-        var result = new List<IHidTransport>();
+        var devices = new List<IHidTransport>();
+        var errors = new List<string>();
+
         foreach (var cand in Scan())
         {
             var cls = cand.DeviceClass;
             if (cls == 0) continue;
             var idx = counters.GetValueOrDefault(cls);
             counters[cls] = idx + 1;
-            result.Add(new HidrawTransport(cand.Path, cls, idx));
+            try
+            {
+                devices.Add(new HidrawTransport(cand.Path, cls, idx));
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{cand.Path}（PID 0x{cand.Pid:X4}，{cand.Name}）：{ex.Message}");
+            }
         }
-        return result;
+        return new DeviceOpenReport(devices, errors);
     }
 
     private static Dictionary<string, string> ReadUevent(string path)

@@ -20,24 +20,18 @@ public sealed class DeviceItem : ObservableObject
 
 public sealed class MainViewModel : ObservableObject
 {
-    private readonly DeviceSet _set;
-    private readonly MonitorEngine _engine;
+    private DeviceSet _set;
+    private MonitorEngine _engine;
     private bool _demo;
+    private IReadOnlyList<string> _errors;
 
-    public MainViewModel(DeviceSet set, bool demo)
+    public MainViewModel(DeviceBootstrap boot)
     {
-        _set = set;
-        _demo = demo;
-        _engine = new MonitorEngine(set, Log);
-        _engine.StateUpdated += st => Dispatcher.UIThread.Post(() => ApplyState(st));
+        _set = boot.Set;
+        _demo = boot.Demo;
+        _errors = boot.Errors;
 
-        Devices = new ObservableCollection<DeviceItem>(set.Devices.Select(d => new DeviceItem
-        {
-            Title = Proto.ClassName(d.Class),
-            Subtitle = $"{d.Path}   VID 0x{Proto.Vid:X4}  PID 0x{Proto.PidForClass(d.Class):X4}",
-            Badge = $"类别 {d.Class}",
-            Online = true,
-        }));
+        Devices = new ObservableCollection<DeviceItem>(BuildDeviceItems(_set));
 
         LedModes = new ObservableCollection<Option>(Proto.LedModes
             .OrderBy(kv => kv.Key)
@@ -66,19 +60,100 @@ public sealed class MainViewModel : ObservableObject
         PresetColorCommand = new RelayCommand(PresetColor);
         ToggleMonitorCommand = new RelayCommand(ToggleMonitor);
         ClearLogCommand = new RelayCommand(FrameLog.Clear);
+        RescanCommand = new RelayCommand(Rescan);
 
-        set.RegisterAll();
+        _engine = NewEngine(_set);
+        _set.RegisterAll();
         Refresh();
-        Log($"已打开 {set.Devices.Count} 台设备" + (demo ? "（演示模式：写入假设备）" : ""));
+        ReportConnection();
         _engine.Start();
         MonitorRunning = true;
+    }
+
+    private static List<DeviceItem> BuildDeviceItems(DeviceSet set) => set.Devices.Select(d => new DeviceItem
+    {
+        Title = Proto.ClassName(d.Class),
+        Subtitle = $"{d.Path}   VID 0x{Proto.Vid:X4}  PID 0x{Proto.PidForClass(d.Class):X4}",
+        Badge = $"类别 {d.Class}",
+        Online = d.Path != "/dev/fake",
+    }).ToList();
+
+    private MonitorEngine NewEngine(DeviceSet set)
+    {
+        var engine = new MonitorEngine(set, Log);
+        engine.StateUpdated += st => Dispatcher.UIThread.Post(() => ApplyState(st));
+        return engine;
+    }
+
+    /// <summary>把连接结果如实写进横幅与日志：权限不足、没插设备、--demo 要能区分。</summary>
+    private void ReportConnection()
+    {
+        OnPropertyChanged(nameof(IsDemo));
+        OnPropertyChanged(nameof(ModeBanner));
+        OnPropertyChanged(nameof(ModeDetail));
+        OnPropertyChanged(nameof(AudioBanner));
+
+        if (!_demo)
+        {
+            Log($"已连接 {_set.Devices.Count} 台设备：" +
+                string.Join("、", _set.Devices.Select(d => $"{Proto.ClassName(d.Class)}@{d.Path}")));
+            return;
+        }
+        Log("演示模式（帧只写内存假设备）：" + (_errors.Count > 0 ? _errors[0] : "原因未知"));
+        foreach (var err in _errors.Skip(1)) Log("  " + err);
+    }
+
+    private void Rescan()
+    {
+        var boot = App.CreateDevice(false);
+        if (!boot.Demo)
+        {
+            _engine.Stop();
+            _engine.Dispose();
+            _set.Dispose();
+        }
+        else
+        {
+            boot.Set.Dispose();          // 仍是演示数据，丢弃
+            Log($"× 重新扫描未连上：{boot.Errors.FirstOrDefault() ?? "未知原因"}");
+            _demo = true;
+            _errors = boot.Errors;
+            ReportConnection();
+            return;
+        }
+
+        _set = boot.Set;
+        _demo = boot.Demo;
+        _errors = boot.Errors;
+        Devices.Clear();
+        foreach (var item in BuildDeviceItems(_set)) Devices.Add(item);
+        _engine = NewEngine(_set);
+        _set.RegisterAll();
+        ReportConnection();
+        _engine.Start();
+        MonitorRunning = true;
+        Refresh();
     }
 
     // ---------------------------------------------------------- 设备 / 遥测
 
     public ObservableCollection<DeviceItem> Devices { get; }
     public bool IsDemo => _demo;
-    public string ModeBanner => _demo ? "演示模式（无硬件，帧写入内存假设备）" : "已连接真实设备";
+
+    public string ModeBanner => _demo
+        ? (_errors.Count > 0 && _errors[0].Contains("权限") ? "未连上设备：权限不足（演示模式）"
+           : _errors.Count > 0 && _errors[0].Contains("--demo") ? "演示模式（手动指定 --demo）"
+           : "未发现设备（演示模式）")
+        : "已连接真实设备";
+
+    /// <summary>完整原因，鼠标悬停横幅可见。</summary>
+    public string ModeDetail => _demo
+        ? string.Join("\n", _errors) + "\n\n权限不足时执行：\n" +
+          "sudo install -m644 /usr/lib/udev/rules.d/99-vk-sagittarius.rules /etc/udev/rules.d/ 2>/dev/null || true\n" +
+          "sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw\n" +
+          "然后点「重新扫描」。"
+        : $"已连接 {_set.Devices.Count} 台设备";
+
     public string AudioBanner => _set.AudioAvailable ? $"音频后端：{_set.Meter.Backend}" : "音频后端：不可用（parec / pw-cat 未安装）";
 
     private string _cpuTemp = "-";
@@ -296,6 +371,7 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand ToggleMonitorCommand { get; }
     public RelayCommand RefreshCommand { get; }
     public RelayCommand ClearLogCommand { get; }
+    public RelayCommand RescanCommand { get; }
 
     private void ToggleMonitor()
     {

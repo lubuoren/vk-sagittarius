@@ -166,7 +166,7 @@ public class DeviceScannerTests
 public class MonitorEngineTests
 {
     [Fact]
-    public void LoopSendsAudioAndStateFramesAndLcdCycle()
+    public async Task LoopSendsAudioAndStateFramesAndLcdCycle()
     {
         var fan = new FakeTransport(1, 0);
         var lcd = new FakeTransport(3, 0);
@@ -174,7 +174,7 @@ public class MonitorEngineTests
         using var engine = new MonitorEngine(set);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(700));
-        engine.RunAsync(cts.Token).GetAwaiter().GetResult();
+        await engine.RunAsync(cts.Token);
 
         var audioFrames = fan.Sent.Where(f => f.Length > 12 && f[12] == (byte)Proto.Cmd.Audio).ToList();
         var stateFrames = fan.Sent.Where(f => f.Length > 12 && f[12] == (byte)Proto.Cmd.GetState).ToList();

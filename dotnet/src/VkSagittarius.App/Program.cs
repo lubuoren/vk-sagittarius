@@ -36,14 +36,17 @@ internal static class Program
     /// </summary>
     private static int HeadlessRun(int seconds)
     {
-        var candidates = DeviceScanner.Scan();
-        var set = App.CreateDeviceSet(candidates.Count == 0);
-        if (!set.Any)
+        var boot = App.CreateDevice(false);
+        if (boot.Demo)
         {
-            Console.Error.WriteLine("没有可用设备，退出");
+            Console.Error.WriteLine("没有可用的真实设备，心跳模式不启动。原因：");
+            foreach (var err in boot.Errors) Console.Error.WriteLine("  " + err);
+            Console.Error.WriteLine("权限不足时安装 udev 规则：sudo install -m644 packaging/99-vk-sagittarius.rules /etc/udev/rules.d/");
+            boot.Set.Dispose();
             return 2;
         }
 
+        var set = boot.Set;
         using var cts = new CancellationTokenSource(
             seconds > 0 ? TimeSpan.FromSeconds(seconds) : Timeout.InfiniteTimeSpan);
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; TryCancel(cts); };
@@ -76,7 +79,10 @@ internal static class Program
         foreach (var c in candidates)
             Console.WriteLine($"  {c.Path}  PID 0x{c.Pid:X4}  类别 {c.DeviceClass}  {c.Name}");
 
-        var set = App.CreateDeviceSet(candidates.Count == 0);
+        var boot = App.CreateDevice(false);
+        var set = boot.Set;
+        Console.WriteLine($"{boot.Demo switch { true => "演示模式（无真实设备）", false => "真实设备已连接" }}");
+        foreach (var err in boot.Errors) Console.WriteLine("  ! " + err);
         Console.WriteLine($"打开设备 {set.Devices.Count} 台：" +
                           string.Join(", ", set.Devices.Select(d => $"{Proto.ClassName(d.Class)}@{d.Path}")));
 

@@ -23,11 +23,13 @@
       </StackPanel>
 
       <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="2">
-        <TextBlock Text="{Binding ModeBanner}" Classes="dim" HorizontalAlignment="Center" />
+        <TextBlock Text="{Binding ModeBanner}" Classes="dim" HorizontalAlignment="Center"
+                   ToolTip.Tip="{Binding ModeDetail}" />
         <TextBlock Text="{Binding AudioBanner}" Classes="dim" HorizontalAlignment="Center" />
       </StackPanel>
 
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button Content="重新扫描" Classes="ghost" Command="{Binding RescanCommand}" />
         <Button Content="{Binding MonitorButtonText}" Classes="ghost" Command="{Binding ToggleMonitorCommand}" />
         <Button Content="刷新遥测" Classes="ghost" Command="{Binding RefreshCommand}" />
       </StackPanel>

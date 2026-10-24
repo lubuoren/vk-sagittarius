@@ -51,6 +51,21 @@ dotnet publish src/VkSagittarius.App -c Release -r linux-x64 --self-contained fa
 | `--self-test` | 不进图形界面，打印设备枚举、遥测、一轮 LED/FAN/LCD 发送结果 |
 | `--headless [--seconds N]` | 常驻心跳：不开窗口，只跑 10Hz 音频帧 + 1Hz 状态回读 + 1Hz LCD 三段文本；N 秒后自退（验证用） |
 
+## 为什么显示"演示模式"
+
+右上角横幅会直接写原因，鼠标悬停看完整信息。三种情况：
+
+- **权限不足**：`/dev/hidraw*` 在 Arch 上默认是 `root:root 0660`，普通用户打不开，
+  程序只能退化成演示模式。装 udev 规则（`makepkg -si` 会带上）后执行
+  `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw`，
+  再点界面上的「重新扫描」即可，不必重启程序。
+- **没有设备**：`--self-test` 会打印枚举结果，确认 VID `0x0416`、PID `0x5201-0x5203`
+  是否出现。
+- **手动 `--demo`**：强制演示模式，横幅会写"手动指定"。
+
+早期版本会吞掉 open 的异常并静默退化成演示模式，现在每台设备的失败原因都会
+记进日志与横幅。
+
 ## 权限
 
 `/dev/hidraw*` 默认只有 root 可写。装 udev 规则即可免 sudo：
