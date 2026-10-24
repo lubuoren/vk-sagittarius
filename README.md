@@ -86,10 +86,27 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5203", TAG+="ua
 上传背景图还需要挂载能力：装了 `udisks2` 时普通用户即可；否则以 root 运行，
 程序会退回 `mount -t vfat`。
 
+## 复刻范围（对照原程序逐项）
+
+| 原程序 | 状态 | 说明 |
+|---|---|---|
+| 灯效：12 种模式 + 外部输入、6 通道（全部/1-4/主板） | ✅ | 模式 10「全彩自动」按 `SendLEDData1` 发 mode=1 + 全零负载，与原程序一致 |
+| 灯效：首次回读同步模式/亮度/速度/RGB | ✅ | 对齐 `UserDeviceLED.DoInitMyData` |
+| 风扇：4 通道 × 4 预设 + 自定义三点曲线 | ✅ | 自定义字节序 `0,temp1..3,pwm1..3` 照抄 |
+| 风扇：每通道独立记忆（`myALLMode`）+ 回读同步 | ✅ | 切通道会带回该路上次的模式 |
+| 风扇：四路实时转速 | ✅ | 取自 `GetState` 回应的 `[15+3(ch-1) .. ]` |
+| 心跳：100ms 音频/遥测 + 1s 状态回读 | ✅ | 合并为 20ms 调度循环，不互相阻塞 |
+| 系统信息页 + 温度曲线 | ✅ | WMI/CPUID → `/proc`、hwmon、nvidia-smi；曲线 60 点 1Hz |
+| 开机自启 | ✅ | 原程序写注册表 Run，这里写 `~/.config/autostart`（`--headless`） |
+| 托盘图标 + 右键退出 | ✅ | Avalonia `TrayIcon`，Linux 无 StatusNotifier 时自动跳过 |
+| LCD：三段文本 / 配置 96 / 旋转 / 白黑屏 / 上传背景 | ✅（协议）+ ⚠️（UI 简化） | 显示项选择的完整表单（5 组 × 指标 × 阈值）尚未做成可视化编辑器 |
+| SYD 设备（类别 2，19 字节负载、cmd 32/48 双区） | ❌ 未实现 | 只保留了通用 6 字节灯效路径；需要该型号设备才能验证 |
+| 启动动画（FormStart） | ❌ 未实现 | 原程序是欢迎页，移植版直接进主界面 |
+
+明确没做的部分不再含糊：SYD 型号、LCD 配置可视化编辑、启动页。
+
 ## 与 Windows 版的行为差异
 
-- **没有托盘图标与开机自启**：改为可选的 systemd user service（见 `packaging/`），
-  界面关掉不影响已下发到设备的设置。
 - **遥测来源**：WMI + `cpuidsdk.dll` 换成 `/proc`、`/sys/class/hwmon`、`nvidia-smi`；
   CPUID SDK 本身带试用期检查，移植后不再需要。
 - **主板温度 / 内存温度**：Linux 侧普遍没有对应传感器，LCD 上这两项留空（设备显示 0）。
@@ -104,10 +121,10 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5203", TAG+="ua
 
 已验证（在本机真实执行）：
 
-- `dotnet build` 全解决方案 0 警告 0 错误；14 项单测全过。
+- `dotnet build` 全解决方案 0 警告 0 错误；15 项单测全过。
 - `--self-test` 枚举到宿主透出的 `Nuvoton HID Transfer`（`0x0416:0x5201`），
   读到了真实 CPU 温度 / 频率 / 风扇转速。
-- Avalonia headless + Skia 渲染三页界面并落盘截图（`screenshots/`），中文正常。
+- Avalonia headless + Skia 渲染四页界面（灯效/风扇/LCD/系统）并落盘截图（`screenshots/`），中文正常。
 
 未验证（缺硬件或缺少权限）：
 

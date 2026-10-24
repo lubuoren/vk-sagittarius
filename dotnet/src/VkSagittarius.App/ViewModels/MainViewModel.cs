@@ -61,6 +61,10 @@ public sealed class MainViewModel : ObservableObject
         ToggleMonitorCommand = new RelayCommand(ToggleMonitor);
         ClearLogCommand = new RelayCommand(FrameLog.Clear);
         RescanCommand = new RelayCommand(Rescan);
+        ToggleAutostartCommand = new RelayCommand(ToggleAutostart);
+
+        _uiTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _uiTimer.Tick += OnUiTick;
 
         _engine = NewEngine(_set);
         _set.RegisterAll();
@@ -68,6 +72,7 @@ public sealed class MainViewModel : ObservableObject
         ReportConnection();
         _engine.Start();
         MonitorRunning = true;
+        StartUiTimer();
     }
 
     private static List<DeviceItem> BuildDeviceItems(DeviceSet set) => set.Devices.Select(d => new DeviceItem
@@ -181,10 +186,49 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(AudioBanner));
     }
 
+    private bool _ledSynced;
+
+    /// <summary>设备回读 → 界面同步。原程序：灯效只在首次收到状态时回填一次，
+    /// 风扇每路模式则持续跟随设备（myALLMode 与 data[ch*3+12]）。</summary>
     private void ApplyState(Proto.DeviceState st)
     {
-        if (st.Fans.TryGetValue(1, out var f1)) FanRpm = $"{f1.Rpm} RPM";
+        for (var ch = 1; ch <= 4; ch++)
+        {
+            if (!st.Fans.TryGetValue(ch, out var f)) continue;
+            SetRpm(ch, f.Rpm);
+            _fanModeByCh[ch] = f.Mode;
+        }
+        if (SelectedFanChannel is { } cur &&
+            FanModes.FirstOrDefault(m => m.Id == _fanModeByCh[cur.Id]) is { } m2)
+            SelectedFanMode = m2;
+
+        if (!_ledSynced && st.Led is { } led)
+        {
+            _ledSynced = true;
+            SelectedLedMode = LedModes.FirstOrDefault(m => m.Id == led.Mode) ?? SelectedLedMode;
+            Brightness = led.Brightness;
+            // 设备侧速度档 1/2/4 → 滑杆 100/50/1（原程序 speedVal = {100,100,50,1,1}）
+            Speed = led.Speed switch { 1 => 100, 2 => 50, 4 => 1, _ => Speed };
+            R = led.R;
+            G = led.G;
+            B = led.B;
+            Log($"从设备回读：模式 {led.Mode}，亮度 {led.Brightness}，颜色 #{led.R:X2}{led.G:X2}{led.B:X2}");
+        }
+
         LedStateText = st.Describe();
+    }
+
+    private readonly string[] _fanRpmByCh = ["-", "-", "-", "-"];
+    public string FanRpm1 => _fanRpmByCh[0];
+    public string FanRpm2 => _fanRpmByCh[1];
+    public string FanRpm3 => _fanRpmByCh[2];
+    public string FanRpm4 => _fanRpmByCh[3];
+
+    private void SetRpm(int ch, int rpm)
+    {
+        if (ch is < 1 or > 4) return;
+        _fanRpmByCh[ch - 1] = $"{rpm} RPM";
+        OnPropertyChanged($"FanRpm{ch}");
     }
 
     private string _ledStateText = "（等待设备回报）";
@@ -255,9 +299,20 @@ public sealed class MainViewModel : ObservableObject
         var rgb = ((int)R, (int)G, (int)B);
         try
         {
-            dev.SetLed(SelectedLedMode.Id, rgb, (int)Brightness, speed, SelectedLedChannel.Id);
-            Log($"LED → 模式 {SelectedLedMode.Id} 通道 {SelectedLedChannel.Id} " +
-                $"亮度 {Brightness:0} 速度 {speed} #{ColorHex}");
+            if (SelectedLedMode.Id == 10)
+            {
+                // 原程序 SendLEDData1：mode 固定 1，负载 {0,速度,0,0,0,0}
+                var (mode, payload) = Proto.LedAutoPayload(speed);
+                dev.Send(Proto.BuildReport(dev.Class, dev.Index, Proto.Cmd.Led,
+                    SelectedLedChannel.Id, mode, payload));
+                Log($"LED → 全彩自动（通道 {SelectedLedChannel.Id}，速度 {speed}，负载全零由设备自行跑色）");
+            }
+            else
+            {
+                dev.SetLed(SelectedLedMode.Id, rgb, (int)Brightness, speed, SelectedLedChannel.Id);
+                Log($"LED → 模式 {SelectedLedMode.Id} 通道 {SelectedLedChannel.Id} " +
+                    $"亮度 {Brightness:0} 速度 {speed} #{ColorHex}");
+            }
         }
         catch (Exception ex) { Log($"× LED 发送失败：{ex.Message}"); }
     }
@@ -268,9 +323,21 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<Option> FanModes { get; }
 
     private Option _selectedFanChannel;
-    public Option SelectedFanChannel { get => _selectedFanChannel; set => Set(ref _selectedFanChannel, value); }
+    public Option SelectedFanChannel
+    {
+        get => _selectedFanChannel;
+        set
+        {
+            if (!Set(ref _selectedFanChannel, value) || value is null) return;
+            // 原程序 myALLMode[通道] 记忆每路各自的曲线模式
+            SelectedFanMode = FanModes.FirstOrDefault(m => m.Id == _fanModeByCh[value.Id]) ?? FanModes[1];
+        }
+    }
     private Option _selectedFanMode;
     public Option SelectedFanMode { get => _selectedFanMode; set => Set(ref _selectedFanMode, value); }
+
+    /// <summary>每路风扇的曲线模式（下标即通道号，1..4），对齐原程序 myALLMode。</summary>
+    private readonly int[] _fanModeByCh = [2, 2, 2, 2, 2];
 
     public double Pwm1 { get; set; } = 20;
     public double Pwm2 { get; set; } = 55;
@@ -287,6 +354,7 @@ public sealed class MainViewModel : ObservableObject
         if (dev is null) { Log("× 没有风扇/灯效设备"); return; }
         try
         {
+            _fanModeByCh[SelectedFanChannel.Id] = SelectedFanMode.Id;
             if (SelectedFanMode.Id == Proto.FanModeCustom)
             {
                 dev.SetFan(SelectedFanChannel.Id, Proto.FanModeCustom,
@@ -379,6 +447,107 @@ public sealed class MainViewModel : ObservableObject
         else { _engine.Start(); MonitorRunning = true; Log("心跳已启动"); }
     }
 
+    // ---------------------------------------------------------- 系统信息 / 曲线 / 自启
+
+    private static readonly SystemInfo SysInfo = SystemInfo.Read();
+
+    public string SysCpu => string.IsNullOrEmpty(SysInfo.CpuName) ? "未知" : SysInfo.CpuName;
+    public string SysCores => $"{SysInfo.Cores} 线程";
+    public string SysMem => SysInfo.MemTotal;
+    public string SysGpu => string.IsNullOrEmpty(SysInfo.GpuName) ? "未识别" : SysInfo.GpuName;
+    public string SysKernel => SysInfo.Kernel;
+    public string SysHost => SysInfo.HostName;
+    public string SysUptime => SysInfo.Uptime;
+
+    private readonly List<double> _cpuHist = new();
+    private readonly List<double> _gpuHist = new();
+
+    /// <summary>温度曲线（画布 420x110，60 个采样点，1Hz）。</summary>
+    public Geometry CpuGeometry => BuildGeometry(_cpuHist, 420, 110);
+    public Geometry GpuGeometry => BuildGeometry(_gpuHist, 420, 110);
+
+    private static Geometry BuildGeometry(List<double> data, double w, double h)
+    {
+        if (data.Count == 0) return new StreamGeometry();
+        var max = Math.Max(90.0, data.Max());
+        var step = data.Count > 1 ? w / (data.Count - 1) : w;
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < data.Count; i++)
+        {
+            var x = i * step;
+            var y = h - Math.Clamp(data[i] / max, 0, 1) * (h - 6);
+            sb.Append(i == 0 ? $"M {x:0.#},{y:0.#}" : $" L {x:0.#},{y:0.#}");
+        }
+        return Geometry.Parse(sb.ToString());
+    }
+
+    private void PushHistory()
+    {
+        _cpuHist.Add(_set.Snapshot.CpuTemp);
+        _gpuHist.Add(_set.Snapshot.GpuTemp);
+        if (_cpuHist.Count > 60) _cpuHist.RemoveAt(0);
+        if (_gpuHist.Count > 60) _gpuHist.RemoveAt(0);
+        OnPropertyChanged(nameof(CpuGeometry));
+        OnPropertyChanged(nameof(GpuGeometry));
+    }
+
+    // 原程序 Form1 有定时器刷新系统信息；这里同样用 1Hz 的 UI 定时器
+    private readonly DispatcherTimer _uiTimer;
+
+    private void StartUiTimer()
+    {
+        _uiTimer.Start();
+    }
+
+    private void OnUiTick(object? sender, EventArgs e)
+    {
+        Refresh();
+        PushHistory();
+    }
+
+    // ---------------------------------------------------------- 开机自启
+
+    private static string AutostartFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".config", "autostart", "vk-sagittarius.desktop");
+
+    public bool AutostartEnabled => File.Exists(AutostartFile);
+
+    public RelayCommand ToggleAutostartCommand { get; }
+
+    private void ToggleAutostart()
+    {
+        try
+        {
+            if (AutostartEnabled)
+            {
+                File.Delete(AutostartFile);
+                Log("开机自启：已关闭");
+            }
+            else
+            {
+                var dir = Path.GetDirectoryName(AutostartFile)!;
+                Directory.CreateDirectory(dir);
+                var exe = Environment.ProcessPath ?? "/usr/bin/vk-sagittarius";
+                File.WriteAllText(AutostartFile, $"""
+                    [Desktop Entry]
+                    Type=Application
+                    Name=VK 射手座控制中心
+                    Exec={exe} --headless
+                    X-GNOME-Autostart-enabled=true
+                    NoDisplay=false
+                    Terminal=false
+                    """);
+                Log($"开机自启：已开启（{exe} --headless）");
+            }
+        }
+        catch (Exception ex) { Log($"× 自启设置失败：{ex.Message}"); }
+        OnPropertyChanged(nameof(AutostartEnabled));
+        OnPropertyChanged(nameof(AutostartText));
+    }
+
+    public string AutostartText => AutostartEnabled ? "开机自启：开" : "开机自启：关";
+
     public ObservableCollection<string> FrameLog { get; } = new();
 
     public void Log(string message)
@@ -394,6 +563,7 @@ public sealed class MainViewModel : ObservableObject
 
     public void Shutdown()
     {
+        _uiTimer.Stop();
         _engine.Dispose();
         _set.Dispose();
     }

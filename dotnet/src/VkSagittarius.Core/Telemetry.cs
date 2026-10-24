@@ -15,6 +15,84 @@ public sealed record TelemetrySnapshot(
     public static readonly TelemetrySnapshot Empty = new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+/// <summary>静态系统信息（原程序走 WMI 取，这里读 /proc 与 /sys）。</summary>
+public sealed record SystemInfo(
+    string CpuName, int Cores, string MemTotal, string GpuName,
+    string Kernel, string HostName, string Uptime)
+{
+    public static SystemInfo Read()
+    {
+        var cpu = "";
+        var cores = 0;
+        foreach (var line in File.ReadAllLines("/proc/cpuinfo"))
+        {
+            if (line.StartsWith("model name", StringComparison.Ordinal) && cpu.Length == 0)
+                cpu = line[(line.IndexOf(':') + 1)..].Trim();
+            else if (line.StartsWith("processor", StringComparison.Ordinal)) cores++;
+        }
+        if (cores == 0) cores = Environment.ProcessorCount;
+
+        var mem = "";
+        foreach (var line in File.ReadAllLines("/proc/meminfo"))
+        {
+            if (!line.StartsWith("MemTotal:", StringComparison.Ordinal)) continue;
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 1 && long.TryParse(parts[1], out var kb))
+                mem = $"{kb / 1024.0 / 1024.0:0.0} GiB";
+            break;
+        }
+
+        var gpu = ReadGpuName();
+        var kernel = File.Exists("/proc/sys/kernel/osrelease")
+            ? File.ReadAllText("/proc/sys/kernel/osrelease").Trim() : "";
+        var host = Environment.MachineName;
+        var uptime = TimeSpan.FromSeconds(Environment.TickCount64 / 1000.0);
+        return new SystemInfo(cpu, cores, mem, gpu, kernel, host,
+            $"{uptime.Days} 天 {uptime.Hours} 小时 {uptime.Minutes} 分");
+    }
+
+    private static string ReadGpuName()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("nvidia-smi", "--query-gpu=name --format=csv,noheader")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is not null)
+            {
+                var name = p.StandardOutput.ReadToEnd().Trim();
+                if (p.WaitForExit(1500) && name.Length > 0) return name.Split('\n')[0].Trim();
+            }
+        }
+        catch (Exception) { }
+
+        const string drm = "/sys/class/drm";
+        if (Directory.Exists(drm))
+        {
+            foreach (var card in Directory.GetDirectories(drm, "card[0-9]*"))
+            {
+                var vendor = Path.Combine(card, "device", "vendor");
+                var device = Path.Combine(card, "device", "device");
+                if (!File.Exists(vendor)) continue;
+                try
+                {
+                    var v = File.ReadAllText(vendor).Trim();
+                    var d = File.Exists(device) ? File.ReadAllText(device).Trim() : "";
+                    if (v == "0x10de") return $"NVIDIA ({d})";
+                    if (v == "0x1002") return $"AMD ({d})";
+                    if (v == "0x8086") return $"Intel ({d})";
+                }
+                catch (IOException) { }
+            }
+        }
+        return "";
+    }
+}
+
 /// <summary>
 /// Linux 传感器采集，替代原程序的 WMI + cpuidsdk.dll。
 /// 温度/风扇读 hwmon，占用读 /proc/stat，内存读 /proc/meminfo，

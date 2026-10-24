@@ -69,6 +69,15 @@ public class ProtocolTests
     }
 
     [Fact]
+    public void LedAutoModeUsesSpecialPayload()
+    {
+        // 原程序 SendLEDData1：mode 固定 1，负载 {0,速度,0,0,0,0}
+        var (mode, payload) = Proto.LedAutoPayload(Proto.LedSpeedMid);
+        Assert.Equal(1, mode);
+        Assert.Equal([0, Proto.LedSpeedMid, 0, 0, 0, 0], payload);
+    }
+
+    [Fact]
     public void LcdSlotPacksMetricGroups()
     {
         var slot = new Proto.LcdSlot(Clock: false, Layout: 3, Hour24: 24,

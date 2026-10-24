@@ -176,6 +176,26 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
               <Grid ColumnDefinitions="*,*" Margin="0,12,0,0">
                 <StackPanel Grid.Column="0" Spacing="12" Margin="0,0,20,0">
+                  <Border Background="#121218" CornerRadius="8" Padding="12">
+                    <Grid ColumnDefinitions="*,*,*,*">
+                      <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="风扇 1" Classes="label" />
+                        <TextBlock Text="{Binding FanRpm1}" FontSize="15" Foreground="#EDEDF3" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Text="风扇 2" Classes="label" />
+                        <TextBlock Text="{Binding FanRpm2}" FontSize="15" Foreground="#EDEDF3" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" Spacing="2">
+                        <TextBlock Text="风扇 3" Classes="label" />
+                        <TextBlock Text="{Binding FanRpm3}" FontSize="15" Foreground="#EDEDF3" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="3" Spacing="2">
+                        <TextBlock Text="风扇 4" Classes="label" />
+                        <TextBlock Text="{Binding FanRpm4}" FontSize="15" Foreground="#EDEDF3" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
                   <StackPanel Spacing="4">
                     <TextBlock Text="风扇通道" Classes="label" />
                     <ComboBox ItemsSource="{Binding FanChannels}"
@@ -265,6 +285,60 @@
                              Classes="dim" TextWrapping="Wrap" MaxWidth="620" HorizontalAlignment="Left" />
                 </StackPanel>
               </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <!-- 系统 -->
+          <TabItem Header="系统">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <Grid ColumnDefinitions="*,*" Margin="0,14,0,0">
+                <StackPanel Grid.Column="0" Spacing="10" Margin="0,0,20,0">
+                  <TextBlock Text="硬件与系统" Classes="label" />
+                  <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU" Classes="dim" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SysCpu}" TextWrapping="Wrap" Foreground="#DFDFE8" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="线程" Classes="dim" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SysCores}" Foreground="#DFDFE8" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="内存" Classes="dim" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SysMem}" Foreground="#DFDFE8" />
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="显卡" Classes="dim" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SysGpu}" TextWrapping="Wrap" Foreground="#DFDFE8" />
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="内核" Classes="dim" />
+                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SysKernel}" Foreground="#DFDFE8" />
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="主机名" Classes="dim" />
+                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SysHost}" Foreground="#DFDFE8" />
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="运行时长" Classes="dim" />
+                    <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding SysUptime}" Foreground="#DFDFE8" />
+                  </Grid>
+
+                  <TextBlock Text="启动与后台" Classes="label" Margin="0,10,0,0" />
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button Content="{Binding AutostartText}" Classes="ghost" Command="{Binding ToggleAutostartCommand}" />
+                    <TextBlock Text="写入 ~/.config/autostart，登录后以 --headless 常驻下发心跳"
+                               Classes="dim" VerticalAlignment="Center" />
+                  </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="8">
+                  <TextBlock Text="温度曲线（60 秒）" Classes="label" />
+                  <Border Background="#101016" CornerRadius="8" Padding="6" HorizontalAlignment="Left">
+                    <Canvas Width="420" Height="110">
+                      <Path Data="{Binding CpuGeometry}" Stroke="#D09742" StrokeThickness="1.6" />
+                      <Path Data="{Binding GpuGeometry}" Stroke="#496877" StrokeThickness="1.6" />
+                    </Canvas>
+                  </Border>
+                  <StackPanel Orientation="Horizontal" Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Border Width="14" Height="3" Background="#D09742" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding CpuTemp}" Classes="dim" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Border Width="14" Height="3" Background="#496877" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding GpuTemp}" Classes="dim" />
+                    </StackPanel>
+                  </StackPanel>
+                </StackPanel>
+              </Grid>
             </ScrollViewer>
           </TabItem>
 

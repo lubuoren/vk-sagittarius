@@ -169,6 +169,14 @@ public static class Proto
         0,
     ];
 
+    /// <summary>
+    /// 模式 10「全彩自动」的真实报文：原程序 SendLEDData1 固定发 cmd mode=1
+    /// （静态单色）且负载为 {0, 速度, 0,0,0,0}，亮度归零，由设备自己跑全彩。
+    /// 用常规 LedPayload 发会变成"亮度 100 的纯色"，行为不一致。
+    /// </summary>
+    public static (int Mode, byte[] Payload) LedAutoPayload(int speed) =>
+        (1, [0, (byte)Math.Clamp(speed, 0, 255), 0, 0, 0, 0]);
+
     // ------------------------------------------------------------ 风扇
 
     public sealed record FanCurve(string Name, byte[] Pwm, byte[] Temp);

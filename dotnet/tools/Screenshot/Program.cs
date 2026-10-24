@@ -43,7 +43,7 @@ vm.ApplyFanCommand.Execute(null);
 Pump(500);
 
 var tabs = window.FindControl<TabControl>("Tabs")!;
-var names = new[] { "led", "fan", "lcd" };
+var names = new[] { "led", "fan", "lcd", "sys" };
 var rc = 0;
 
 for (var i = 0; i < names.Length; i++)
