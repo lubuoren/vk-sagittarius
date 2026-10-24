@@ -21,7 +21,7 @@ pkgbase = vk-sagittarius
 	optdepends = udisks2: LCD 换背景时自动挂载设备切出的 U 盘
 	optdepends = pulseaudio: parec 提供音频电平（声显频谱灯效）
 	optdepends = pipewire: pw-cat 提供音频电平（声显频谱灯效）
-	source = vk-sagittarius-1.0.0.tar.gz
-	sha256sums = 36744f988079657a289a4d1992dca6994a60bad972d8b0cad200893c4d5864ca
+	source = vk-sagittarius-1.0.0.tar.gz::https://github.com/lubuoren/vk-sagittarius/archive/refs/tags/v1.0.0.tar.gz
+	sha256sums = a928e511ad7c3f8c0be729ab6c20ab6a6b67c6dcb478ae0a98845a2f71694382
 
 pkgname = vk-sagittarius
