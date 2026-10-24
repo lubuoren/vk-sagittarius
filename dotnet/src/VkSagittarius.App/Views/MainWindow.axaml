@@ -2,10 +2,15 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="VkSagittarius.App.Views.MainWindow"
         Title="VK 射手座控制中心 · Linux"
-        Width="1200" Height="840"
-        MinWidth="980" MinHeight="640"
+        Width="{Binding WindowWidth}" Height="{Binding WindowHeight}"
+        MinWidth="{Binding MinWindowWidth}" MinHeight="{Binding MinWindowHeight}"
         Background="#0E0E12"
         FontFamily="Inter, Noto Sans CJK SC, Microsoft YaHei, sans-serif">
+
+  <LayoutTransformControl>
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{Binding UiScale}" ScaleY="{Binding UiScale}" />
+    </LayoutTransformControl.LayoutTransform>
 
   <Grid RowDefinitions="72,*,158" Margin="18,14,18,14">
 
@@ -317,6 +322,18 @@
                     <TextBlock Text="写入 ~/.config/autostart，登录后以 --headless 常驻下发心跳"
                                Classes="dim" VerticalAlignment="Center" />
                   </StackPanel>
+
+                  <TextBlock Text="界面缩放" Classes="label" Margin="0,12,0,0" />
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <ComboBox ItemsSource="{Binding ScaleOptions}"
+                              SelectedItem="{Binding SelectedScaleOption, Mode=TwoWay}"
+                              Width="130" />
+                    <Button Content="复位为 1.0×" Classes="ghost" Command="{Binding ScaleResetCommand}" />
+                    <TextBlock Text="当前" Classes="dim" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding UiScaleText}" Foreground="#DFDFE8" VerticalAlignment="Center" />
+                  </StackPanel>
+                  <TextBlock Text="XWayland 下合成器的 1.875 之类小数缩放不会传给程序，这里手动对齐即可；选择会写入 ~/.config/vk-sagittarius/config.json"
+                             Classes="dim" TextWrapping="Wrap" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Spacing="8">
@@ -358,4 +375,5 @@
       </Grid>
     </Border>
   </Grid>
+  </LayoutTransformControl>
 </Window>

@@ -156,3 +156,12 @@ makepkg -si            # 需要 dotnet-sdk（构建期会联网做一次 NuGet �
 
 已有构建产物（不想自己编译时）：`vk-sagittarius-1.0.0-linux-x64.tar.gz`，
 解压后直接跑里面的 `VkSagittarius.App`。
+
+## 界面缩放
+
+Hyprland 开 `xwayland:force_zero_scaling` 时，显示器的 fractional scale（如 1.875）
+不会传给 X11 程序，Avalonia 按 1.0 画，于是 4K 屏上界面偏小、还会被合成器放大发虚。
+
+优先级：`--scale 1.875` / 环境变量 `VKSAG_SCALE` → `~/.config/vk-sagittarius/config.json`
+→ Xft.dpi/96 → 1.0。界面「系统」页里也能直接选（1.0/1.25/1.5/1.75/1.875/2.0），
+选中即生效并写回配置；缩放走 `LayoutTransform`，矢量重绘，不是位图拉伸。

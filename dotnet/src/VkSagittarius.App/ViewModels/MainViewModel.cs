@@ -63,6 +63,15 @@ public sealed class MainViewModel : ObservableObject
         RescanCommand = new RelayCommand(Rescan);
         ToggleAutostartCommand = new RelayCommand(ToggleAutostart);
 
+        _selectedScaleOption = ScaleOptions.FirstOrDefault(o => Math.Abs(o.Id / 1000.0 - UiScale) < 0.001)
+                               ?? new Option((int)Math.Round(UiScale * 1000), $"{UiScale:0.###}×");
+        if (!ScaleOptions.Contains(_selectedScaleOption)) ScaleOptions.Add(_selectedScaleOption);
+        ScaleResetCommand = new RelayCommand(() =>
+        {
+            var opt = ScaleOptions.FirstOrDefault(o => o.Id == 1000);
+            if (opt is not null) SelectedScaleOption = opt;
+        });
+
         _uiTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _uiTimer.Tick += OnUiTick;
 
@@ -547,6 +556,57 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public string AutostartText => AutostartEnabled ? "开机自启：开" : "开机自启：关";
+
+    // ---------------------------------------------------------- 界面缩放
+
+    /// <summary>
+    /// 界面缩放。XWayland + Hyprland 的 fractional scale（如 1.875）不会传给 X11 程序，
+    /// Avalonia 默认按 1.0 画，于是 4K 屏上字小、再被合成器放大发虚。
+    /// 这里显式接管：CLI --scale / 环境变量 VKSAG_SCALE / 配置文件 / 界面选择，
+    /// 用 LayoutTransform 缩放整棵可视树（矢量重绘，不是位图放大）。
+    /// </summary>
+    private double _uiScale = ScaleConfig.Resolve();
+
+    public double UiScale
+    {
+        get => _uiScale;
+        private set
+        {
+            if (!Set(ref _uiScale, value)) return;
+            OnPropertyChanged(nameof(WindowWidth));
+            OnPropertyChanged(nameof(WindowHeight));
+            OnPropertyChanged(nameof(MinWindowWidth));
+            OnPropertyChanged(nameof(MinWindowHeight));
+            OnPropertyChanged(nameof(UiScaleText));
+        }
+    }
+
+    public double WindowWidth => Math.Round(1200 * UiScale);
+    public double WindowHeight => Math.Round(840 * UiScale);
+    public double MinWindowWidth => Math.Round(900 * UiScale);
+    public double MinWindowHeight => Math.Round(600 * UiScale);
+    public string UiScaleText => $"{UiScale:0.###}×";
+
+    public List<Option> ScaleOptions { get; } =
+    [
+        new Option(1000, "1.00×"), new Option(1250, "1.25×"), new Option(1500, "1.50×"),
+        new Option(1750, "1.75×"), new Option(1875, "1.875×"), new Option(2000, "2.00×"),
+    ];
+
+    private Option _selectedScaleOption = null!;
+    public Option SelectedScaleOption
+    {
+        get => _selectedScaleOption;
+        set
+        {
+            if (!Set(ref _selectedScaleOption, value) || value is null) return;
+            UiScale = value.Id / 1000.0;
+            ScaleConfig.Save(UiScale);
+            Log($"界面缩放 → {UiScale:0.###}×（已保存到 ~/.config/vk-sagittarius/config.json）");
+        }
+    }
+
+    public RelayCommand ScaleResetCommand { get; }
 
     public ObservableCollection<string> FrameLog { get; } = new();
 

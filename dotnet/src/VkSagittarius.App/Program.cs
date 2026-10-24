@@ -17,6 +17,10 @@ internal static class Program
         if (args.Contains("--headless"))
             return HeadlessRun(ArgInt(args, "--seconds"), ArgStr(args, "--path"));
 
+        // --scale 优先级最高：写进环境变量后由 ScaleConfig 统一读取
+        if (ArgStr(args, "--scale") is { } scaleArg)
+            Environment.SetEnvironmentVariable("VKSAG_SCALE", scaleArg);
+
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
