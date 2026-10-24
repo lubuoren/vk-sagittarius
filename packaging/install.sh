@@ -32,9 +32,9 @@ sed "s|/opt/vk-sagittarius|$PREFIX|g" "$HERE/vk-sagittarius.desktop" \
 
 if [[ $DO_UDEV -eq 1 ]]; then
   echo "→ 安装 udev 规则（需要 sudo）"
-  sudo install -m644 "$HERE/99-vk-sagittarius.rules" /etc/udev/rules.d/
-  sudo udevadm control --reload
-  sudo udevadm trigger --subsystem-match=hidraw
+  sudo install -m644 "$HERE/99-vk-sagittarius.rules" /usr/lib/udev/rules.d/
+  sudo udevadm control --reload-rules
+  sudo udevadm trigger --action=add --subsystem-match=hidraw
 fi
 
 echo

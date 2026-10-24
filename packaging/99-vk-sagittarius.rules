@@ -1,7 +1,12 @@
 # VK 射手座控制中心 —— hidraw 免 sudo 访问规则
-# 安装： sudo install -m644 99-vk-sagittarius.rules /etc/udev/rules.d/
-#        sudo udevadm control --reload && sudo udevadm trigger
-
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5201", TAG+="uaccess", MODE="0660"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5202", TAG+="uaccess", MODE="0660"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5203", TAG+="uaccess", MODE="0660"
+# 安装： sudo install -m644 99-vk-sagittarius.rules /usr/lib/udev/rules.d/
+#        sudo udevadm control --reload-rules
+#        sudo udevadm trigger --action=add --subsystem-match=hidraw
+#
+# 两条保险：
+#   TAG+="uaccess" → 图形会话用户拿到 ACL；注意 ACL 只在 add 事件里下发，change 不会
+#   GROUP="input"  → uaccess 不生效时（无活动 seat、远程会话）退化成组权限，
+#                    用户加入 input 组即可读写
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5201", TAG+="uaccess", GROUP="input", MODE="0660"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5202", TAG+="uaccess", GROUP="input", MODE="0660"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5203", TAG+="uaccess", GROUP="input", MODE="0660"

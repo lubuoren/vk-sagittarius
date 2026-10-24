@@ -71,16 +71,18 @@ dotnet publish src/VkSagittarius.App -c Release -r linux-x64 --self-contained fa
 `/dev/hidraw*` 默认只有 root 可写。装 udev 规则即可免 sudo：
 
 ```bash
-sudo install -m644 packaging/99-vk-sagittarius.rules /etc/udev/rules.d/
-sudo udevadm control --reload && sudo udevadm trigger
+sudo install -m644 packaging/99-vk-sagittarius.rules /usr/lib/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --action=add --subsystem-match=hidraw   # 注意是 add，change 不会补 ACL
 ```
 
-规则内容（VID `0x0416`，PID `0x5201/0x5202/0x5203`）：
+规则内容（VID `0x0416`，PID `0x5201/0x5202/0x5203`）：`uaccess` 给图形会话用户 ACL，
+`GROUP="input"` 兜底（无活动 seat、远程会话时靠组权限）。
 
 ```
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5201", TAG+="uaccess", MODE="0660"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5202", TAG+="uaccess", MODE="0660"
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5203", TAG+="uaccess", MODE="0660"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5201", TAG+="uaccess", GROUP="input", MODE="0660"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5202", TAG+="uaccess", GROUP="input", MODE="0660"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0416", ATTRS{idProduct}=="5203", TAG+="uaccess", GROUP="input", MODE="0660"
 ```
 
 上传背景图还需要挂载能力：装了 `udisks2` 时普通用户即可；否则以 root 运行，
@@ -156,6 +158,13 @@ makepkg -si            # 需要 dotnet-sdk（构建期会联网做一次 NuGet �
 
 已有构建产物（不想自己编译时）：`vk-sagittarius-1.0.0-linux-x64.tar.gz`，
 解压后直接跑里面的 `VkSagittarius.App`。
+
+## 配置持久化
+
+`~/.config/vk-sagittarius/config.json` 保存：界面缩放、灯效（模式/通道/亮度/速度/颜色）、
+风扇（每通道曲线模式 + 自定义三点 PWM/温度）。点「应用灯效」「应用风扇曲线」写入，
+重启后自动恢复。原程序的 `config.d` 只有常量定义、从未写盘，所以曲线点在 Windows 版
+重启就丢；这是移植时补的。
 
 ## 界面缩放
 

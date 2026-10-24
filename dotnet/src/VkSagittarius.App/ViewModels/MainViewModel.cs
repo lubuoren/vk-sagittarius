@@ -20,6 +20,7 @@ public sealed class DeviceItem : ObservableObject
 
 public sealed class MainViewModel : ObservableObject
 {
+    private readonly AppConfig _config;
     private DeviceSet _set;
     private MonitorEngine _engine;
     private bool _demo;
@@ -27,6 +28,9 @@ public sealed class MainViewModel : ObservableObject
 
     public MainViewModel(DeviceBootstrap boot)
     {
+        _config = AppConfig.Load();
+        _uiScale = AppConfig.ParseScale(Environment.GetEnvironmentVariable("VKSAG_SCALE")) ?? _config.Scale;
+
         _set = boot.Set;
         _demo = boot.Demo;
         _errors = boot.Errors;
@@ -46,10 +50,22 @@ public sealed class MainViewModel : ObservableObject
             Proto.FanCurves.OrderBy(kv => kv.Key).Select(kv => new Option(kv.Key, $"{kv.Key}  {kv.Value.Name}"))
                 .Append(new Option(Proto.FanModeCustom, "5  自定义曲线")));
 
-        _selectedLedMode = LedModes[0];
-        _selectedLedChannel = LedChannels[0];
+        for (var ch = 1; ch < 5; ch++) _fanModeByCh[ch] = _config.Fan.Modes[ch];
+        Pwm1 = _config.Fan.Pwm[0];
+        Pwm2 = _config.Fan.Pwm[1];
+        Pwm3 = _config.Fan.Pwm[2];
+        Temp1 = _config.Fan.Temp[0];
+        Temp2 = _config.Fan.Temp[1];
+        Temp3 = _config.Fan.Temp[2];
+
+        _brightness = _config.Led.Brightness;
+        _r = _config.Led.R; _g = _config.Led.G; _b = _config.Led.B;
+        UpdateColor();
+
+        _selectedLedMode = LedModes.FirstOrDefault(m => m.Id == _config.Led.Mode) ?? LedModes[0];
+        _selectedLedChannel = LedChannels.FirstOrDefault(c => c.Id == _config.Led.Channel) ?? LedChannels[0];
         _selectedFanChannel = FanChannels[0];
-        _selectedFanMode = FanModes[1];
+        _selectedFanMode = FanModes.FirstOrDefault(m => m.Id == _fanModeByCh[1]) ?? FanModes[1];
 
         ApplyLedCommand = new RelayCommand(ApplyLed);
         ApplyFanCommand = new RelayCommand(ApplyFan);
@@ -324,6 +340,15 @@ public sealed class MainViewModel : ObservableObject
             }
         }
         catch (Exception ex) { Log($"× LED 发送失败：{ex.Message}"); }
+
+        _config.Led.Mode = SelectedLedMode.Id;
+        _config.Led.Channel = SelectedLedChannel.Id;
+        _config.Led.Brightness = (int)Brightness;
+        _config.Led.Speed = speed;
+        _config.Led.R = (int)R;
+        _config.Led.G = (int)G;
+        _config.Led.B = (int)B;
+        _config.Save();
     }
 
     // ---------------------------------------------------------- 风扇
@@ -378,6 +403,12 @@ public sealed class MainViewModel : ObservableObject
             }
         }
         catch (Exception ex) { Log($"× 风扇发送失败：{ex.Message}"); }
+
+        _config.Fan.Modes = (int[])_fanModeByCh.Clone();
+        _config.Fan.Pwm = [(int)Pwm1, (int)Pwm2, (int)Pwm3];
+        _config.Fan.Temp = [(int)Temp1, (int)Temp2, (int)Temp3];
+        _config.Save();
+        Log("风扇设置已保存到 ~/.config/vk-sagittarius/config.json");
     }
 
     // ---------------------------------------------------------- LCD
@@ -565,7 +596,7 @@ public sealed class MainViewModel : ObservableObject
     /// 这里显式接管：CLI --scale / 环境变量 VKSAG_SCALE / 配置文件 / 界面选择，
     /// 用 LayoutTransform 缩放整棵可视树（矢量重绘，不是位图放大）。
     /// </summary>
-    private double _uiScale = ScaleConfig.Resolve();
+    private double _uiScale;
 
     public double UiScale
     {
@@ -601,7 +632,8 @@ public sealed class MainViewModel : ObservableObject
         {
             if (!Set(ref _selectedScaleOption, value) || value is null) return;
             UiScale = value.Id / 1000.0;
-            ScaleConfig.Save(UiScale);
+            _config.Scale = UiScale;
+            _config.Save();
             Log($"界面缩放 → {UiScale:0.###}×（已保存到 ~/.config/vk-sagittarius/config.json）");
         }
     }
