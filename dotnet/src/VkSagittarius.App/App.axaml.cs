@@ -35,13 +35,22 @@ public sealed class App : Application
     /// 打开设备。forceDemo 只由 --demo 触发；否则先真连，连不上才退演示模式，
     /// 并把每台设备的失败原因原样带出去——权限不足不能再被伪装成"没有设备"。
     /// </summary>
-    public static DeviceBootstrap CreateDevice(bool forceDemo)
+    public static DeviceBootstrap CreateDevice(bool forceDemo, string? path = null)
     {
         if (forceDemo)
             return new DeviceBootstrap(
                 new DeviceSet([new FakeTransport(1), new FakeTransport(3)]),
                 Demo: true,
                 Errors: ["已指定 --demo"]);
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            var one = DeviceScanner.OpenPath(path);
+            return one.Devices.Count > 0
+                ? new DeviceBootstrap(new DeviceSet(one.Devices), Demo: false, Errors: one.Errors)
+                : new DeviceBootstrap(new DeviceSet([new FakeTransport(1), new FakeTransport(3)]),
+                    Demo: true, Errors: one.Errors);
+        }
 
         var report = DeviceScanner.OpenAll();
         if (report.Devices.Count > 0)

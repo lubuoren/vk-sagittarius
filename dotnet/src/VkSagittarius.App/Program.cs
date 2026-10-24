@@ -10,12 +10,34 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.Contains("--list"))
+            return ListDevices();
         if (args.Contains("--self-test"))
-            return SelfTest();
+            return SelfTest(ArgStr(args, "--path"));
         if (args.Contains("--headless"))
-            return HeadlessRun(ArgInt(args, "--seconds"));
+            return HeadlessRun(ArgInt(args, "--seconds"), ArgStr(args, "--path"));
 
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
+
+    private static string? ArgStr(string[] args, string name)
+    {
+        var i = Array.IndexOf(args, name);
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+    }
+
+    /// <summary>列出所有 VID 0x0416 的 hidraw 节点，含序列号与 USB 产品名——用来分辨
+    /// 哪一个是 VK 控制器、哪一个是同 PID 的 Nuvoton 调试器。</summary>
+    private static int ListDevices()
+    {
+        var list = DeviceScanner.Scan();
+        Console.WriteLine($"VID 0x{Proto.Vid:X4} 的 HID 节点：{list.Count} 个");
+        Console.WriteLine($"{"节点",-14}{"PID",-10}{"类别",-6}{"序列号",-20}{"HID 名",-20}USB 产品名");
+        foreach (var c in list)
+            Console.WriteLine($"{c.Path,-14}0x{c.Pid:X4}    {c.DeviceClass,-6}{c.Serial,-20}{c.Name,-20}{c.UsbProduct}");
+        if (list.Count == 0)
+            Console.WriteLine("（没有匹配设备：确认散热器/控制盒的 USB 线已接到主板，或 udev 未生效）");
+        return 0;
     }
 
     private static int ArgInt(string[] args, string name)
@@ -34,9 +56,9 @@ internal static class Program
     /// 常驻心跳模式：不开窗口，只维持 LCD / 灯效 / 音频心跳，供 systemd user service 使用。
     /// 加 --seconds N 可在 N 秒后自行退出（便于验证）。
     /// </summary>
-    private static int HeadlessRun(int seconds)
+    private static int HeadlessRun(int seconds, string? path = null)
     {
-        var boot = App.CreateDevice(false);
+        var boot = App.CreateDevice(false, path);
         if (boot.Demo)
         {
             Console.Error.WriteLine("没有可用的真实设备，心跳模式不启动。原因：");
@@ -71,7 +93,7 @@ internal static class Program
             .LogToTrace();
 
     /// <summary>无界面自检：解析设备 → 发一轮帧 → 打印结果，用于 CI 与排障。</summary>
-    private static int SelfTest()
+    private static int SelfTest(string? path = null)
     {
         Console.WriteLine("VK 射手座控制中心 · 自检");
         var candidates = DeviceScanner.Scan();
@@ -79,7 +101,7 @@ internal static class Program
         foreach (var c in candidates)
             Console.WriteLine($"  {c.Path}  PID 0x{c.Pid:X4}  类别 {c.DeviceClass}  {c.Name}");
 
-        var boot = App.CreateDevice(false);
+        var boot = App.CreateDevice(false, path);
         var set = boot.Set;
         Console.WriteLine($"{boot.Demo switch { true => "演示模式（无真实设备）", false => "真实设备已连接" }}");
         foreach (var err in boot.Errors) Console.WriteLine("  ! " + err);

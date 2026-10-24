@@ -114,7 +114,7 @@ public sealed class HidrawTransport : IHidTransport
     }
 }
 
-public sealed record HidCandidate(string Path, ushort Vid, ushort Pid, string Name)
+public sealed record HidCandidate(string Path, ushort Vid, ushort Pid, string Name, string Serial, string UsbProduct)
 {
     public int DeviceClass => Proto.ClassForPid(Pid);
 }
@@ -144,9 +144,45 @@ public static class DeviceScanner
                 continue;
             if (vid != Proto.Vid) continue;
             info.TryGetValue("HID_NAME", out var name);
-            list.Add(new HidCandidate($"/dev/{Path.GetFileName(node)}", vid, pid, (name ?? "").Trim()));
+            info.TryGetValue("HID_UNIQ", out var serial);
+            var usbProduct = ReadText(Path.Combine(node, "device", "..", "..", "product"));
+            list.Add(new HidCandidate($"/dev/{Path.GetFileName(node)}", vid, pid,
+                (name ?? "").Trim(), (serial ?? "").Trim(), usbProduct));
         }
         return list;
+    }
+
+    private static string ReadText(string path)
+    {
+        try { return File.ReadAllText(path).Trim(); }
+        catch (IOException) { return ""; }
+        catch (UnauthorizedAccessException) { return ""; }
+    }
+
+    /// <summary>只打开指定节点（用于有多台同 PID 设备、或要避开调试器时）。</summary>
+    public static DeviceOpenReport OpenPath(string path)
+    {
+        var errors = new List<string>();
+        foreach (var cand in Scan())
+        {
+            if (!string.Equals(cand.Path, path, StringComparison.Ordinal)) continue;
+            if (cand.DeviceClass == 0)
+            {
+                errors.Add($"{path}：PID 0x{cand.Pid:X4} 不是已知的 VK 设备");
+                return new DeviceOpenReport([], errors);
+            }
+            try
+            {
+                return new DeviceOpenReport([new HidrawTransport(cand.Path, cand.DeviceClass, 0)], errors);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{cand.Path}：{ex.Message}");
+                return new DeviceOpenReport([], errors);
+            }
+        }
+        errors.Add($"{path}：未找到该 hidraw 节点（先运行 --list 看现有节点）");
+        return new DeviceOpenReport([], errors);
     }
 
     /// <summary>
