@@ -1,4 +1,4 @@
-# Maintainer: ZOOT <zoot@localhost>
+# Maintainer: lubuoren <lubuoren@users.noreply.github.com>
 # 从 VAIKYRIE.exe 逆向后重写的 Linux 版：.NET 10 + Avalonia。
 # 说明：
 #   * 构建期需要联网做一次 NuGet 还原（Avalonia 11.3.22 等），这是 .NET 项目的常态；
