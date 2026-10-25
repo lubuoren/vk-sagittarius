@@ -8,9 +8,9 @@
 pkgname=vk-sagittarius
 pkgver=1.0.7
 pkgrel=1
-pkgdesc="VK 射手座控制中心：LCD 屏遥测、ARGB 灯效与四路风扇控制（.NET 10 + Avalonia 移植版）"
+pkgdesc="VK Sagittarius control center (LCD telemetry, ARGB lighting, 4-channel fan curves) for Linux"
 arch=('x86_64')
-url="https://github.com/zoot/vk-sagittarius"
+url="https://github.com/lubuoren/vk-sagittarius"
 license=('MIT')
 depends=(
   'glibc'
